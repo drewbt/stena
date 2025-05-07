@@ -8,8 +8,25 @@ const ADMIN_EMAIL = "drewbt@gmail.com";
 const MONTHLY_ALLOWANCE = 50000;
 
 serve(async (req) => {
-  if (req.headers.get("upgrade") !== "websocket") {
-    return new Response("Upgrade to WebSocket required", { status: 400 });
+  const upgrade = req.headers.get("upgrade");
+
+  // Serve fallback browser landing page if not WebSocket
+  if (!upgrade || upgrade.toLowerCase() !== "websocket") {
+    return new Response(`<!DOCTYPE html>
+      <html><head><style>${sharedStyles()}</style></head>
+      <body>
+        <h1>SifunaStena</h1>
+        <p>This is a WebSocket-powered banking app.</p>
+        <p><button onclick="start()">Start</button></p>
+        <script>
+          function start() {
+            const socket = new WebSocket(location.href.replace('http', 'ws'));
+            socket.onmessage = e => document.body.innerHTML = e.data;
+          }
+        </script>
+      </body></html>`, {
+      headers: { "Content-Type": "text/html" }
+    });
   }
 
   const { socket, response } = Deno.upgradeWebSocket(req);
