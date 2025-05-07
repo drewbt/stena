@@ -9,29 +9,24 @@ const MONTHLY_ALLOWANCE = 50000;
 
 serve(async (req) => {
   const upgrade = req.headers.get("upgrade");
-
-  if (!upgrade || upgrade.toLowerCase() !== "websocket") {
-    return new Response(`<!DOCTYPE html>
-      <html><head><style>${sharedStyles()}</style></head>
-      <body>
-        <h1>SifunaStena</h1>
-        <p>This is a WebSocket-powered banking app.</p>
-        <p><button onclick="start()">Start</button></p>
-        <script>
-          function start() {
-            const socket = new WebSocket(location.href.replace('http', 'ws'));
-            socket.onmessage = e => document.body.innerHTML = e.data;
-          }
-        </script>
-      </body></html>`, {
-      headers: { "Content-Type": "text/html" }
-    });
+  if (upgrade && upgrade.toLowerCase() === "websocket") {
+    const { socket, response } = Deno.upgradeWebSocket(req);
+    socket.addEventListener("open", () => renderLogin(socket));
+    socket.addEventListener("message", (e) => handleMessage(socket, e.data));
+    return response;
   }
 
-  const { socket, response } = Deno.upgradeWebSocket(req);
-  socket.addEventListener("open", () => renderLogin(socket));
-  socket.addEventListener("message", (e) => handleMessage(socket, e.data));
-  return response;
+  // Direct HTTP load returns WebSocket HTML with embedded connection
+  return new Response(`<!DOCTYPE html>
+    <html><head><style>${sharedStyles()}</style></head>
+    <body>
+      <script>
+        const socket = new WebSocket(location.href.replace('http', 'ws'));
+        socket.onmessage = e => document.body.innerHTML = e.data;
+      </script>
+    </body></html>`, {
+    headers: { "Content-Type": "text/html" }
+  });
 });
 
 async function handleMessage(socket: WebSocket, data: string) {
@@ -120,9 +115,11 @@ function renderSignup(socket: WebSocket) {
 }
 
 function sharedStyles() {
-  return `body { font-family: sans-serif; padding: 2rem; }
+  return `
+    body { font-family: sans-serif; padding: 2rem; }
     form { display: flex; flex-direction: column; max-width: 300px; }
-    input, button { margin: 0.5rem 0; padding: 0.5rem; }`;
+    input, button { margin: 0.5rem 0; padding: 0.5rem; }
+  `;
 }
 
 function renderError(message: string) {
