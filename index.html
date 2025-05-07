@@ -149,8 +149,13 @@
     }
 
     function resetPassword() {
-      const email = prompt("Enter your email:");
-      if (email) fetch("/reset", { method: "POST", body: JSON.stringify({ email }) });
+  const email = document.getElementById("login-username").value;
+  if (!email.includes("@")) return alert("Enter a valid email above first");
+  fetch("/reset", { method: "POST", body: JSON.stringify({ email }) });
+  alert("If this email is registered, you'll receive reset instructions.");
+}) });
+  alert("If this email is registered, you'll receive reset instructions.");
+}) });
       alert("If this email is registered, you'll receive reset instructions.");
     }
 
