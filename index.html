@@ -1,230 +1,184 @@
+<!-- index.html -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>SifunaStena</title>
   <style>
     body {
-      margin: 0;
-      background: #111;
-      color: #fff;
       font-family: system-ui;
+      margin: 0;
+      padding: 0;
       display: flex;
-      align-items: center;
       justify-content: center;
+      align-items: center;
       height: 100vh;
+      background: #f4f4f8;
     }
-    .screen {
-      display: none;
-      flex-direction: column;
+    #app {
+      text-align: center;
       width: 100%;
       max-width: 400px;
-      text-align: center;
+      padding: 2em;
+      background: white;
+      border-radius: 12px;
+      box-shadow: 0 0 12px rgba(0,0,0,0.1);
     }
-    .active { display: flex; }
+    h1 {
+      font-size: 3em;
+      color: gold;
+    }
     input, button {
+      font-family: system-ui;
+      margin: 0.4em 0;
+      padding: 0.5em;
       width: 100%;
-      padding: 10px;
-      margin: 6px 0;
-      font-size: 16px;
-      border: none;
-      border-radius: 4px;
       box-sizing: border-box;
+      font-size: 1em;
     }
-    input { background: #222; color: #fff; }
-    button { background: #001f3f; color: #fff; cursor: pointer; }
-    .status { font-size: 14px; color: gold; visibility: hidden; margin-top: 6px; }
-    .currency { font-size: 100px; color: gold; margin: 0 0 1rem 0; }
-    .text-link { background: none; border: none; color: #0ff; text-decoration: underline; cursor: pointer; font-size: 14px; }
-    .actions { display: flex; gap: 10px; justify-content: center; margin-top: 1rem; }
-    .transactions { margin-top: 1rem; max-height: 300px; overflow-y: auto; border-top: 1px solid #444; padding-top: 1rem; text-align: left; }
-    .tx { padding: 0.5rem; border-bottom: 1px solid #333; }
+    button {
+      background: navy;
+      color: white;
+      border: none;
+      cursor: pointer;
+    }
+    .tx-log {
+      text-align: left;
+      margin-top: 1em;
+      max-height: 200px;
+      overflow-y: auto;
+      border-top: 1px solid #ccc;
+      padding-top: 1em;
+    }
+    .tx-entry {
+      font-size: 0.9em;
+      margin-bottom: 0.5em;
+    }
+    #balance {
+      font-size: 2em;
+      transition: transform 0.2s ease;
+    }
   </style>
 </head>
 <body>
-  <div class="screen active" id="login">
-    <div class="currency">Ϡ</div>
-    <h2>Log In</h2>
-    <input id="login-username" placeholder="Username">
-    <input id="login-password" type="password" placeholder="Password">
-    <button onclick="login()">Log In</button>
-    <div id="login-status" class="status">
-      <span id="login-message"></span>
-      <button class="text-link" onclick="resetPassword()">Forgot Password?</button>
+  <div id="app">
+    <div id="login-view">
+      <h1>Ϡ</h1>
+      <h2>Login</h2>
+      <input id="email" placeholder="Email" />
+      <input id="password" type="password" placeholder="Password" />
+      <button onclick="login()">Login</button>
+      <p id="login-message"></p>
     </div>
-    <button onclick="show('signup')">Sign Up</button>
-  </div>
 
-  <div class="screen" id="signup">
-    <h2>Create Account</h2>
-    <input id="name" placeholder="Full Name">
-    <input id="surname" placeholder="Surname">
-    <input id="email" placeholder="Email">
-    <input id="cell" placeholder="Cell Number">
-    <input id="username" placeholder="Username">
-    <input id="password" type="password" placeholder="Password">
-    <input id="doc" type="file" accept=".pdf,.png,.jpg,.jpeg">
-    <button onclick="submitSignup()">Submit</button>
-    <button onclick="show('login')">Back</button>
-  </div>
+    <div id="main-view" style="display: none;">
+      <h1>Ϡ</h1>
+      <div id="balance">Ϡ0</div>
+      <p id="user-name"></p>
 
-  <div class="screen" id="dashboard">
-    <h2>Balance: <span id="balance">Ϡ0</span></h2>
-    <div class="actions">
-      <button onclick="show('send')">Send</button>
-      <button onclick="show('receive')">Receive</button>
-      <button id="logs-button" onclick="window.location='/logs'" style="display:none">View Logs</button>
+      <input id="to" placeholder="Send to (email)" />
+      <input id="amount" type="number" placeholder="Amount" />
+      <input id="message" placeholder="Message (optional)" />
+      <button onclick="send()">Send</button>
+
+      <div class="tx-log" id="tx-log"></div>
     </div>
-    <div class="transactions" id="txlist"></div>
-    <button onclick="logout()">Log Out</button>
-  </div>
-
-  <div class="screen" id="send">
-    <h3>Send Stena</h3>
-    <input id="send-to" placeholder="Recipient username">
-    <input id="send-amount" type="number" placeholder="Amount">
-    <input id="send-msg" placeholder="Optional message">
-    <button onclick="submitSend()">Send</button>
-    <button onclick="show('dashboard')">Back</button>
-  </div>
-
-  <div class="screen" id="receive">
-    <h3>Receive</h3>
-    <input id="recv-amount" type="number" placeholder="Amount (optional)">
-    <input id="recv-msg" placeholder="Message (optional)">
-    <div id="recv-url" style="margin: 1rem 0; word-break: break-word;"></div>
-    <button onclick="copyLink()">Copy Link</button>
-    <button onclick="show('dashboard')">Back</button>
   </div>
 
   <script>
-    let lastLoginAttempt = 0;
-    let ws;
+    let email = localStorage.getItem("username") || "";
+    let socket;
 
-    function show(id) {
-      document.querySelectorAll(".screen").forEach(s => s.classList.remove("active"));
-      document.getElementById(id).classList.add("active");
+    function show(view) {
+      document.getElementById("login-view").style.display = view === "login" ? "" : "none";
+      document.getElementById("main-view").style.display = view === "main" ? "" : "none";
     }
 
-    function login() {
-      const now = Date.now();
-      if (now - lastLoginAttempt < 5000) return alert("Please wait a few seconds.");
-      lastLoginAttempt = now;
-      const user = document.getElementById("login-username").value;
-      const pass = document.getElementById("login-password").value;
-      fetch("/login", { method: "POST", body: JSON.stringify({ username: user, password: pass }) })
-        .then(res => res.json()).then(data => {
-        if (data.ok) {
-          localStorage.setItem("username", user);
-          openWebSocket(user);
-          show("dashboard");
-          loadDashboard();
-        } else {
-          const msg = document.getElementById("login-message");
-          document.getElementById("login-status").style.visibility = "visible";
-          msg.textContent = "Login failed. Only approved users can log in.";
-        }
+    async function login() {
+      const emailInput = document.getElementById("email").value;
+      const pw = document.getElementById("password").value;
+      const res = await fetch("/login", {
+        method: "POST",
+        body: JSON.stringify({ email: emailInput, password: pw }),
       });
+
+      if (!res.ok) {
+        document.getElementById("login-message").innerText = "Login failed or unapproved.";
+        return;
+      }
+
+      const data = await res.json();
+      email = emailInput;
+      localStorage.setItem("username", email);
+      document.getElementById("user-name").innerText = data.name;
+      updateBalance(data.balance);
+      loadTx();
+      wsConnect();
+      show("main");
     }
 
-    function openWebSocket(username) {
-      ws = new WebSocket(`wss://sifunastena.deno.dev/ws?user=${username}`);
-      ws.onmessage = async (e) => {
-        const msg = JSON.parse(e.data);
-        if (msg.type === "balance-update") {
-          const bal = await fetch("/balance", {
+    async function send() {
+      const to = document.getElementById("to").value;
+      const amount = parseFloat(document.getElementById("amount").value);
+      const message = document.getElementById("message").value;
+
+      const res = await fetch("/send", {
+        method: "POST",
+        body: JSON.stringify({ from: email, to, amount, message }),
+      });
+
+      if (res.ok) {
+        loadTx();
+      }
+    }
+
+    async function loadTx() {
+      const res = await fetch("/tx", {
+        method: "POST",
+        body: JSON.stringify({ email }),
+      });
+      const txs = await res.json();
+      const log = document.getElementById("tx-log");
+      log.innerHTML = txs.map(t =>
+        `<div class="tx-entry">
+          <b>${t.from}</b> → <b>${t.to}</b><br/>
+          Ϡ${t.amount} - ${t.message || ""}<br/>
+          <small>${new Date(t.time).toLocaleString()}</small>
+        </div>`
+      ).join("");
+    }
+
+    function updateBalance(amount) {
+      const bal = document.getElementById("balance");
+      bal.innerText = "Ϡ" + amount;
+      bal.style.transform = "scale(1.2)";
+      setTimeout(() => bal.style.transform = "scale(1)", 200);
+    }
+
+    function wsConnect() {
+      socket = new WebSocket(`ws://${location.host}/ws?user=${email}`);
+      socket.onmessage = async (e) => {
+        if (e.data === "update") {
+          const res = await fetch("/login", {
             method: "POST",
-            body: JSON.stringify({ username })
-          }).then(r => r.json());
-          const el = document.getElementById("balance");
-          el.textContent = `Ϡ${bal.balance}`;
-          el.animate([
-            { transform: 'scale(1)', opacity: 1 },
-            { transform: 'scale(1.15)', opacity: 1 },
-            { transform: 'scale(1)', opacity: 1 }
-          ], { duration: 300, easing: 'ease-out' });
+            body: JSON.stringify({ email, password: "" }), // assume still valid session
+          });
+          if (res.ok) {
+            const data = await res.json();
+            updateBalance(data.balance);
+            loadTx();
+          }
+        }
+        if (e.data === "approved") {
+          document.getElementById("login-message").innerText = "You have been approved!";
         }
       };
     }
 
-    function resetPassword() {
-  const email = document.getElementById("login-username").value;
-  if (!email.includes("@")) {
-    alert("Enter a valid email above first");
-    return;
-  }
-  fetch("/reset", { method: "POST", body: JSON.stringify({ email }) });
-  const msg = document.getElementById("login-message");
-  document.getElementById("login-status").style.visibility = "visible";
-  msg.textContent = "Reset email sent, please check in a couple of moments.";
-}
-  fetch("/reset", { method: "POST", body: JSON.stringify({ email }) });
-  alert("If this email is registered, you'll receive reset instructions.");
-}) });
-  alert("If this email is registered, you'll receive reset instructions.");
-}) });
-  alert("If this email is registered, you'll receive reset instructions.");
-}) });
-      alert("If this email is registered, you'll receive reset instructions.");
-    }
-
-    function submitSignup() {
-      const file = document.getElementById('doc').files[0];
-      const reader = new FileReader();
-      reader.onload = async function () {
-        const base64 = reader.result.split(',')[1];
-        const payload = {
-          name: document.getElementById('name').value,
-          surname: document.getElementById('surname').value,
-          email: document.getElementById('email').value,
-          cell: document.getElementById('cell').value,
-          username: document.getElementById('username').value,
-          password: document.getElementById('password').value,
-          fileName: file.name,
-          fileData: base64
-        };
-        await fetch('/submit-doc', { method: 'POST', body: JSON.stringify(payload) });
-        alert("Submitted. Await email confirmation.");
-        show('login');
-      };
-      reader.readAsDataURL(file);
-    }
-
-    async function loadDashboard() {
-      const user = localStorage.getItem("username");
-      if (user === "drewbt@gmail.com") document.getElementById("logs-button").style.display = "inline-block";
-      const bal = await fetch("/balance", { method: "POST", body: JSON.stringify({ username: user }) }).then(r => r.json());
-      const el = document.getElementById("balance");
-      el.textContent = `Ϡ${bal.balance}`;
-      const tx = await fetch("/tx", { method: "POST", body: JSON.stringify({ username: user }) }).then(r => r.json());
-      document.getElementById("txlist").innerHTML = tx.transactions.map(t => `<div class='tx'>${new Date(t.datetime).toLocaleString()}<br/>${t.from} → ${t.to}: Ϡ${t.amount}<br/><small>${t.message}</small></div>`).join("");
-    }
-
-    async function submitSend() {
-      const user = localStorage.getItem("username");
-      const to = document.getElementById("send-to").value;
-      const amount = +document.getElementById("send-amount").value;
-      const msg = document.getElementById("send-msg").value;
-      await fetch("/send", { method: "POST", body: JSON.stringify({ username: user, to, amount, message: msg }) });
-      show("dashboard");
-      loadDashboard();
-    }
-
-    function copyLink() {
-      const user = localStorage.getItem("username");
-      const amount = document.getElementById("recv-amount").value;
-      const msg = document.getElementById("recv-msg").value;
-      const link = `https://sifunastena.deno.dev/send?to=${user}${amount ? `&amount=${amount}` : ""}${msg ? `&message=${encodeURIComponent(msg)}` : ""}`;
-      document.getElementById("recv-url").textContent = link;
-      navigator.clipboard.writeText(link);
-      alert("Link copied!");
-    }
-
-    function logout() {
-      localStorage.removeItem("username");
-      if (ws) ws.close();
-      show("login");
+    if (email) {
+      document.getElementById("email").value = email;
+      show("login"); // or auto-try login if token-based auth added
     }
   </script>
 </body>
