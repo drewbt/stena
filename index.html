@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SifunaStena</title>
+  <style>
+    body { background: #111; color: #fff; font-family: sans-serif; margin: 0; padding: 2rem; }
+    .screen { display: none; flex-direction: column; max-width: 400px; margin: auto; }
+    .active { display: flex; }
+    input, button { margin: 8px 0; padding: 10px; font-size: 16px; border: none; border-radius: 5px; width: 100%; }
+    input { background: #222; color: #fff; }
+    button { background: teal; color: white; cursor: pointer; }
+    .transactions { margin-top: 1rem; max-height: 300px; overflow-y: auto; border-top: 1px solid #444; padding-top: 1rem; }
+    .tx { padding: 0.5rem; border-bottom: 1px solid #333; }
+    .actions { display: flex; gap: 10px; margin-top: 1rem; }
+  </style>
+</head>
+<body>
+  <div class="screen active" id="login">
+    <h2>Log In</h2>
+    <input id="login-username" placeholder="Username" />
+    <input id="login-password" type="password" placeholder="Password" />
+    <button onclick="login()">Log In</button>
+  </div>
+
+  <div class="screen" id="dashboard">
+    <h2>Balance: <span id="balance">Ϡ0</span></h2>
+    <div class="actions">
+      <button onclick="showSend()">Send</button>
+      <button onclick="showReceive()">Receive</button>
+    </div>
+    <div class="transactions" id="txlist"></div>
+    <button onclick="logout()">Log Out</button>
+  </div>
+
+  <div class="screen" id="send">
+    <h3>Send Stena</h3>
+    <input id="send-to" placeholder="Recipient username" />
+    <input id="send-amount" type="number" placeholder="Amount" />
+    <input id="send-msg" placeholder="Optional message" />
+    <button onclick="submitSend()">Send</button>
+    <button onclick="showDashboard()">Back</button>
+  </div>
+
+  <div class="screen" id="receive">
+    <h3>Receive</h3>
+    <input id="recv-amount" type="number" placeholder="Amount (optional)" />
+    <input id="recv-msg" placeholder="Message (optional)" />
+    <div id="recv-url" style="margin: 1rem 0; word-break: break-all;"></div>
+    <button onclick="copyLink()">Copy Link</button>
+    <button onclick="showDashboard()">Back</button>
+  </div>
+
+  <script>
+    const username = localStorage.getItem("username");
+    if (username) showDashboard();
+
+    function show(id) {
+      document.querySelectorAll(".screen").forEach(s => s.classList.remove("active"));
+      document.getElementById(id).classList.add("active");
+    }
+
+    async function login() {
+      const user = document.getElementById("login-username").value;
+      const pass = document.getElementById("login-password").value;
+      const res = await fetch("/login", {
+        method: "POST",
+        body: JSON.stringify({ username: user, password: pass })
+      });
+      const data = await res.json();
+      if (data.ok) {
+        localStorage.setItem("username", user);
+        showDashboard();
+      } else {
+        alert("Login failed");
+      }
+    }
+
+    async function showDashboard() {
+      const user = localStorage.getItem("username");
+      if (!user) return show("login");
+      const bal = await fetch("/balance", {
+        method: "POST",
+        body: JSON.stringify({ username: user })
+      }).then(r => r.json());
+      document.getElementById("balance").textContent = `Ϡ${bal.balance}`;
+
+      const tx = await fetch("/tx", {
+        method: "POST",
+        body: JSON.stringify({ username: user })
+      }).then(r => r.json());
+      document.getElementById("txlist").innerHTML = tx.transactions.map(t =>
+        `<div class='tx'>${new Date(t.datetime).toLocaleString()}<br/>${t.from} → ${t.to}: Ϡ${t.amount}<br/><small>${t.message}</small></div>`
+      ).join("");
+      show("dashboard");
+    }
+
+    function showSend() { show("send"); }
+    function showReceive() {
+      const user = localStorage.getItem("username");
+      const amount = document.getElementById("recv-amount").value;
+      const msg = document.getElementById("recv-msg").value;
+      const link = `https://sifunastena.deno.dev/send?to=${user}${amount ? `&amount=${amount}` : ""}${msg ? `&message=${encodeURIComponent(msg)}` : ""}`;
+      document.getElementById("recv-url").textContent = link;
+      show("receive");
+    }
+
+    async function submitSend() {
+      const user = localStorage.getItem("username");
+      const to = document.getElementById("send-to").value;
+      const amount = +document.getElementById("send-amount").value;
+      const msg = document.getElementById("send-msg").value;
+      await fetch("/send", {
+        method: "POST",
+        body: JSON.stringify({ username: user, to, amount, message: msg })
+      });
+      showDashboard();
+    }
+
+    function logout() {
+      localStorage.removeItem("username");
+      show("login");
+    }
+
+    function copyLink() {
+      const link = document.getElementById("recv-url").textContent;
+      navigator.clipboard.writeText(link);
+      alert("Link copied!");
+    }
+  </script>
+</body>
+</html>
