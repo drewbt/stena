@@ -1,7 +1,6 @@
 // main.ts
 
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
-import { createClient } from "https://deno.land/x/kv@0.1.4/mod.ts";
 
 const kv = await Deno.openKv();
 const sockets = new Map<string, Set<WebSocket>>();
