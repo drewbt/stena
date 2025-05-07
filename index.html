@@ -1,19 +1,19 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>SifunaStena</title>
   <style>
     body {
+      margin: 0;
       background: #111;
       color: #fff;
       font-family: system-ui;
-      margin: 0;
-      height: 100vh;
       display: flex;
       align-items: center;
       justify-content: center;
+      height: 100vh;
     }
     .screen {
       display: none;
@@ -22,105 +22,172 @@
       max-width: 400px;
       text-align: center;
     }
-    .active {
-      display: flex;
-    }
+    .active { display: flex; }
     input, button {
-      margin: 8px 0;
+      width: 100%;
       padding: 10px;
+      margin: 6px 0;
       font-size: 16px;
       border: none;
-      border-radius: 5px;
-      width: 100%;
+      border-radius: 4px;
       box-sizing: border-box;
     }
-    input {
-      background: #222;
-      color: #fff;
-    }
-    button {
-      background: gold; color: black;
-      color: white;
-      cursor: pointer;
-    }
-    .transactions {
-      margin-top: 1rem;
-      max-height: 300px;
-      overflow-y: auto;
-      border-top: 1px solid #444;
-      padding-top: 1rem;
-    }
-    .tx {
-      padding: 0.5rem;
-      border-bottom: 1px solid #333;
-    }
-    .actions {
-      display: flex;
-      gap: 10px;
-      margin-top: 1rem;
-    }
-    .status {
-      margin: 6px 0 -2px;
-      font-size: 13px;
-      color: #f66;
-      visibility: hidden;
-    }
-    .currency {
-      font-size: 100px;
-      color: gold;
-      margin-bottom: 1rem;
-    }
-    .text-link {
-      background: none;
-      color: #0ff;
-      border: none;
-      font-size: 14px;
-      margin-top: 2px;
-      text-decoration: underline;
-      cursor: pointer;
-    }
+    input { background: #222; color: #fff; }
+    button { background: #001f3f; color: #fff; cursor: pointer; }
+    .status { font-size: 14px; color: gold; visibility: hidden; margin-top: 6px; }
+    .currency { font-size: 100px; color: gold; margin: 0 0 1rem 0; }
+    .text-link { background: none; border: none; color: #0ff; text-decoration: underline; cursor: pointer; font-size: 14px; }
+    .actions { display: flex; gap: 10px; justify-content: center; margin-top: 1rem; }
+    .transactions { margin-top: 1rem; max-height: 300px; overflow-y: auto; border-top: 1px solid #444; padding-top: 1rem; text-align: left; }
+    .tx { padding: 0.5rem; border-bottom: 1px solid #333; }
   </style>
 </head>
 <body>
   <div class="screen active" id="login">
     <div class="currency">Ϡ</div>
     <h2>Log In</h2>
-    <input id="login-username" placeholder="Username" />
-    <input id="login-password" type="password" placeholder="Password" />
+    <input id="login-username" placeholder="Username">
+    <input id="login-password" type="password" placeholder="Password">
     <button onclick="login()">Log In</button>
-    <div id="login-status" class="status">Only approved users can log in</div>
+    <div id="login-status" class="status">
+      <span id="login-message"></span>
+      <button class="text-link" onclick="resetPassword()">Forgot Password?</button>
+    </div>
     <button onclick="show('signup')">Sign Up</button>
-    <button class="text-link" onclick="resetPassword()">Forgot Password?</button>
+  </div>
+
+  <div class="screen" id="signup">
+    <h2>Create Account</h2>
+    <input id="name" placeholder="Full Name">
+    <input id="surname" placeholder="Surname">
+    <input id="email" placeholder="Email">
+    <input id="cell" placeholder="Cell Number">
+    <input id="username" placeholder="Username">
+    <input id="password" type="password" placeholder="Password">
+    <input id="doc" type="file" accept=".pdf,.png,.jpg,.jpeg">
+    <button onclick="submitSignup()">Submit</button>
+    <button onclick="show('login')">Back</button>
+  </div>
+
+  <div class="screen" id="dashboard">
+    <h2>Balance: <span id="balance">Ϡ0</span></h2>
+    <div class="actions">
+      <button onclick="show('send')">Send</button>
+      <button onclick="show('receive')">Receive</button>
+      <button id="logs-button" onclick="window.location='/logs'" style="display:none">View Logs</button>
+    </div>
+    <div class="transactions" id="txlist"></div>
+    <button onclick="logout()">Log Out</button>
+  </div>
+
+  <div class="screen" id="send">
+    <h3>Send Stena</h3>
+    <input id="send-to" placeholder="Recipient username">
+    <input id="send-amount" type="number" placeholder="Amount">
+    <input id="send-msg" placeholder="Optional message">
+    <button onclick="submitSend()">Send</button>
+    <button onclick="show('dashboard')">Back</button>
+  </div>
+
+  <div class="screen" id="receive">
+    <h3>Receive</h3>
+    <input id="recv-amount" type="number" placeholder="Amount (optional)">
+    <input id="recv-msg" placeholder="Message (optional)">
+    <div id="recv-url" style="margin: 1rem 0; word-break: break-word;"></div>
+    <button onclick="copyLink()">Copy Link</button>
+    <button onclick="show('dashboard')">Back</button>
   </div>
 
   <script>
+    let lastLoginAttempt = 0;
+    const username = localStorage.getItem("username");
+    if (username) show("dashboard") && loadDashboard();
+
+    function show(id) {
+      document.querySelectorAll(".screen").forEach(s => s.classList.remove("active"));
+      document.getElementById(id).classList.add("active");
+    }
+
     function login() {
+      const now = Date.now();
+      if (now - lastLoginAttempt < 5000) return alert("Please wait a few seconds.");
+      lastLoginAttempt = now;
       const user = document.getElementById("login-username").value;
       const pass = document.getElementById("login-password").value;
-      fetch("/login", {
-        method: "POST",
-        body: JSON.stringify({ username: user, password: pass })
-      }).then(res => res.json()).then(data => {
+      fetch("/login", { method: "POST", body: JSON.stringify({ username: user, password: pass }) })
+        .then(res => res.json()).then(data => {
         if (data.ok) {
           localStorage.setItem("username", user);
-          location.reload();
+          show("dashboard");
+          loadDashboard();
         } else {
-          const status = document.getElementById("login-status");
-          status.textContent = "Login failed. Only approved users can log in.";
-          status.style.visibility = "visible";
+          const msg = document.getElementById("login-message");
+          document.getElementById("login-status").style.visibility = "visible";
+          msg.textContent = "Login failed. Only approved users can log in.";
         }
       });
     }
 
     function resetPassword() {
-      const email = prompt("Enter your email address to reset password:");
-      if (email) {
-        fetch("/reset", {
-          method: "POST",
-          body: JSON.stringify({ email })
-        });
-        alert("If this email is registered, you will receive reset instructions shortly.");
-      }
+      const email = prompt("Enter your email:");
+      if (email) fetch("/reset", { method: "POST", body: JSON.stringify({ email }) });
+      alert("If this email is registered, you'll receive reset instructions.");
+    }
+
+    function submitSignup() {
+      const file = document.getElementById('doc').files[0];
+      const reader = new FileReader();
+      reader.onload = async function () {
+        const base64 = reader.result.split(',')[1];
+        const payload = {
+          name: document.getElementById('name').value,
+          surname: document.getElementById('surname').value,
+          email: document.getElementById('email').value,
+          cell: document.getElementById('cell').value,
+          username: document.getElementById('username').value,
+          password: document.getElementById('password').value,
+          fileName: file.name,
+          fileData: base64
+        };
+        await fetch('/submit-doc', { method: 'POST', body: JSON.stringify(payload) });
+        alert("Submitted. Await email confirmation.");
+        show('login');
+      };
+      reader.readAsDataURL(file);
+    }
+
+    async function loadDashboard() {
+      const user = localStorage.getItem("username");
+      if (user === "drewbt@gmail.com") document.getElementById("logs-button").style.display = "inline-block";
+      const bal = await fetch("/balance", { method: "POST", body: JSON.stringify({ username: user }) }).then(r => r.json());
+      document.getElementById("balance").textContent = `Ϡ${bal.balance}`;
+      const tx = await fetch("/tx", { method: "POST", body: JSON.stringify({ username: user }) }).then(r => r.json());
+      document.getElementById("txlist").innerHTML = tx.transactions.map(t => `<div class='tx'>${new Date(t.datetime).toLocaleString()}<br/>${t.from} → ${t.to}: Ϡ${t.amount}<br/><small>${t.message}</small></div>`).join("");
+    }
+
+    async function submitSend() {
+      const user = localStorage.getItem("username");
+      const to = document.getElementById("send-to").value;
+      const amount = +document.getElementById("send-amount").value;
+      const msg = document.getElementById("send-msg").value;
+      await fetch("/send", { method: "POST", body: JSON.stringify({ username: user, to, amount, message: msg }) });
+      show("dashboard");
+      loadDashboard();
+    }
+
+    function copyLink() {
+      const user = localStorage.getItem("username");
+      const amount = document.getElementById("recv-amount").value;
+      const msg = document.getElementById("recv-msg").value;
+      const link = `https://sifunastena.deno.dev/send?to=${user}${amount ? `&amount=${amount}` : ""}${msg ? `&message=${encodeURIComponent(msg)}` : ""}`;
+      document.getElementById("recv-url").textContent = link;
+      navigator.clipboard.writeText(link);
+      alert("Link copied!");
+    }
+
+    function logout() {
+      localStorage.removeItem("username");
+      show("login");
     }
   </script>
 </body>
