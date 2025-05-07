@@ -134,16 +134,23 @@
         const msg = JSON.parse(e.data);
         if (msg.type === "balance-update") {
           const bal = await fetch("/balance", {
-        method: "POST",
-        body: JSON.stringify({ username })
-      }).then(r => r.json());
-      const balanceEl = document.getElementById("balance");
-      balanceEl.textContent = `Ϡ${bal.balance}`;
-      balanceEl.animate([
-        { transform: 'scale(1)', opacity: 1 },
-        { transform: 'scale(1.15)', opacity: 1 },
-        { transform: 'scale(1)', opacity: 1 }
-      ], { duration: 300, easing: 'ease-out' });
+            method: "POST",
+            body: JSON.stringify({ username })
+          }).then(r => r.json());
+          const el = document.getElementById("balance");
+          el.textContent = `Ϡ${bal.balance}`;
+          el.animate([
+            { transform: 'scale(1)', opacity: 1 },
+            { transform: 'scale(1.15)', opacity: 1 },
+            { transform: 'scale(1)', opacity: 1 }
+          ], { duration: 300, easing: 'ease-out' });
+        }
+      };
+    }
+
+    function resetPassword() {
+      const email = prompt("Enter your email:");
+      if (email) fetch("/reset", { method: "POST", body: JSON.stringify({ email }) });
       alert("If this email is registered, you'll receive reset instructions.");
     }
 
@@ -173,7 +180,8 @@
       const user = localStorage.getItem("username");
       if (user === "drewbt@gmail.com") document.getElementById("logs-button").style.display = "inline-block";
       const bal = await fetch("/balance", { method: "POST", body: JSON.stringify({ username: user }) }).then(r => r.json());
-      document.getElementById("balance").textContent = `Ϡ${bal.balance}`;
+      const el = document.getElementById("balance");
+      el.textContent = `Ϡ${bal.balance}`;
       const tx = await fetch("/tx", { method: "POST", body: JSON.stringify({ username: user }) }).then(r => r.json());
       document.getElementById("txlist").innerHTML = tx.transactions.map(t => `<div class='tx'>${new Date(t.datetime).toLocaleString()}<br/>${t.from} → ${t.to}: Ϡ${t.amount}<br/><small>${t.message}</small></div>`).join("");
     }
