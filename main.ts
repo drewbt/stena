@@ -114,40 +114,44 @@ function renderLogin(message = "") {
       <div id='message' style='margin-top:1em;color:red;'>${message}</div>
     </div>
     <script>
-      const ws = new WebSocket(`ws://${location.host}/ws`);
-      ws.onmessage = (e) => document.body.innerHTML = e.data;
-      function login() {
-        const email = document.getElementById('email').value;
-        const password = document.getElementById('password').value;
-        ws.send(JSON.stringify({ type: 'login', email, password }));
-      }
-      function showSignup() {
-        document.body.innerHTML = \`
-          <div style='text-align:center;padding:2em;'>
-            <h1 style='font-size:5em; color:gold;'>Ϡ</h1>
-            <input id='name' placeholder='First Name' style='width:100%;margin:0.5em;padding:0.5em;' />
-            <input id='surname' placeholder='Surname' style='width:100%;margin:0.5em;padding:0.5em;' />
-            <input id='cell' placeholder='Cell Number' style='width:100%;margin:0.5em;padding:0.5em;' />
-            <input id='email' placeholder='Email' style='width:100%;margin:0.5em;padding:0.5em;' />
-            <input id='password' type='password' placeholder='Password' style='width:100%;margin:0.5em;padding:0.5em;' />
-            <button onclick='signup()' style='width:100%;padding:0.75em;background:green;color:white;border:none;'>Submit</button>
-          </div>
-          <script>
-            function signup() {
-              const data = {
-                type: 'signup',
-                name: document.getElementById('name').value,
-                surname: document.getElementById('surname').value,
-                cell: document.getElementById('cell').value,
-                email: document.getElementById('email').value,
-                password: document.getElementById('password').value,
-                idb64: btoa('dummy-id')
-              };
-              ws.send(JSON.stringify(data));
-            }
-          <\/script>\`;
-      }
-    <\/script>`;
+      (() => {
+        const ws = new WebSocket(`ws://${location.host}/ws`);
+        ws.onmessage = (e) => document.body.innerHTML = e.data;
+        window.login = () => {
+          const email = document.getElementById('email').value;
+          const password = document.getElementById('password').value;
+          ws.send(JSON.stringify({ type: 'login', email, password }));
+        };
+        window.showSignup = () => {
+          document.body.innerHTML = `
+            <div style='text-align:center;padding:2em;'>
+              <h1 style='font-size:5em; color:gold;'>Ϡ</h1>
+              <input id='name' placeholder='First Name' style='width:100%;margin:0.5em;padding:0.5em;' />
+              <input id='surname' placeholder='Surname' style='width:100%;margin:0.5em;padding:0.5em;' />
+              <input id='cell' placeholder='Cell Number' style='width:100%;margin:0.5em;padding:0.5em;' />
+              <input id='email' placeholder='Email' style='width:100%;margin:0.5em;padding:0.5em;' />
+              <input id='password' type='password' placeholder='Password' style='width:100%;margin:0.5em;padding:0.5em;' />
+              <button onclick='signup()' style='width:100%;padding:0.75em;background:green;color:white;border:none;'>Submit</button>
+            </div>
+            <script>
+              (() => {
+                window.signup = () => {
+                  const data = {
+                    type: 'signup',
+                    name: document.getElementById('name').value,
+                    surname: document.getElementById('surname').value,
+                    cell: document.getElementById('cell').value,
+                    email: document.getElementById('email').value,
+                    password: document.getElementById('password').value,
+                    idb64: btoa('dummy-id')
+                  };
+                  ws.send(JSON.stringify(data));
+                }
+              })()
+            </script>`;
+        };
+      })()
+    </script>`;
 }
 
 function renderMain(user) {
@@ -162,13 +166,15 @@ function renderMain(user) {
       <button onclick='sendTx()' style='width:100%;padding:0.75em;background:navy;color:white;border:none;'>Send</button>
     </div>
     <script>
-      const ws = new WebSocket(`ws://${location.host}/ws`);
-      ws.onmessage = (e) => document.body.innerHTML = e.data;
-      function sendTx() {
-        const to = document.getElementById('to').value;
-        const amount = parseFloat(document.getElementById('amount').value);
-        const message = document.getElementById('message').value;
-        ws.send(JSON.stringify({ type: 'send', from: '${user.email}', to, amount, message }));
-      }
-    <\/script>`;
+      (() => {
+        const ws = new WebSocket(`ws://${location.host}/ws`);
+        ws.onmessage = (e) => document.body.innerHTML = e.data;
+        window.sendTx = () => {
+          const to = document.getElementById('to').value;
+          const amount = parseFloat(document.getElementById('amount').value);
+          const message = document.getElementById('message').value;
+          ws.send(JSON.stringify({ type: 'send', from: '${user.email}', to, amount, message }));
+        }
+      })()
+    </script>`;
 }
