@@ -16,34 +16,18 @@ serve(async (req) => {
     return response;
   }
 
-  // Direct HTTP load returns WebSocket HTML with embedded connection
   return new Response(`<!DOCTYPE html>
     <html><head><style>${sharedStyles()}</style></head>
     <body>
       <script>
         const socket = new WebSocket(location.href.replace('http', 'ws'));
         socket.onmessage = e => document.body.innerHTML = e.data;
+        window.socket = socket;
       </script>
     </body></html>`, {
     headers: { "Content-Type": "text/html" }
   });
 });
-
-async function handleMessage(socket: WebSocket, data: string) {
-  try {
-    const msg = JSON.parse(data);
-    switch (msg.type) {
-      case "login": await handleLogin(socket, msg); break;
-      case "signup": renderSignup(socket); break;
-      case "submitSignup": await handleSubmitSignup(socket, msg); break;
-      case "forgot": await handleForgotPassword(socket, msg); break;
-      case "send": await handleSend(socket, msg); break;
-      default: socket.send(renderError("Unknown message type."));
-    }
-  } catch (_) {
-    socket.send(renderError("Invalid message format."));
-  }
-}
 
 function renderLogin(socket: WebSocket) {
   socket.send(`<!DOCTYPE html><html><head><style>${sharedStyles()}</style></head><body>
@@ -56,7 +40,7 @@ function renderLogin(socket: WebSocket) {
     <button id="forgotBtn">Forgot Password</button>
     <button id="signupBtn">Sign Up</button>
     <script>
-      const socket = new WebSocket(location.href.replace('http', 'ws'));
+      const socket = window.socket || new WebSocket(location.href.replace('http', 'ws'));
       function login(e) {
         e.preventDefault();
         const form = e.target;
@@ -77,38 +61,48 @@ function renderLogin(socket: WebSocket) {
   </body></html>`);
 }
 
-function renderSignup(socket: WebSocket) {
+async function handleLogin(socket: WebSocket, msg: any) {
+  const { email, password } = msg;
+  const user = await kv.get(["user", email]);
+  if (!user.value || user.value.password !== hashPassword(password)) {
+    socket.send(renderError("Invalid login credentials."));
+    return;
+  }
+  if (!user.value.approved) {
+    socket.send(renderError("Account pending approval."));
+    return;
+  }
+
+  const txs = await kv.list({ prefix: ["tx"] });
+  let txHtml = "";
+  for await (const entry of txs) {
+    const tx = entry.value;
+    if (tx.from === email || tx.to === email) {
+      txHtml += `<li>Σ${tx.amount} from ${tx.from} to ${tx.to}</li>`;
+    }
+  }
+
   socket.send(`<!DOCTYPE html><html><head><style>${sharedStyles()}</style></head><body>
-    <h1>Sign Up</h1>
-    <form onsubmit="submitSignup(event)">
-      <input name="name" placeholder="Name" required />
-      <input name="surname" placeholder="Surname" required />
-      <input name="id" placeholder="ID Number" required />
-      <input name="email" placeholder="Email" required />
-      <input name="phone" placeholder="Phone" required />
-      <input name="password" type="password" placeholder="Password" required />
-      <input name="idCopy" type="file" required />
-      <button type="submit">Submit</button>
+    <h1>Welcome ${user.value.name}</h1>
+    <p>Balance: Σ${user.value.balance}</p>
+    <form onsubmit="sendMoney(event)">
+      <input name="to" placeholder="Recipient Email" required />
+      <input name="amount" type="number" placeholder="Amount" required />
+      <button type="submit">Send</button>
     </form>
+    <h2>Transactions</h2>
+    <ul>${txHtml}</ul>
     <script>
-      const socket = new WebSocket(location.href.replace('http', 'ws'));
-      function submitSignup(e) {
+      const socket = window.socket || new WebSocket(location.href.replace('http', 'ws'));
+      function sendMoney(e) {
         e.preventDefault();
         const form = e.target;
-        const reader = new FileReader();
-        reader.onload = function() {
-          socket.send(JSON.stringify({
-            type: "submitSignup",
-            name: form.name.value,
-            surname: form.surname.value,
-            id: form.id.value,
-            email: form.email.value,
-            phone: form.phone.value,
-            password: form.password.value,
-            idCopy: reader.result
-          }));
-        };
-        reader.readAsDataURL(form.idCopy.files[0]);
+        socket.send(JSON.stringify({
+          type: "send",
+          from: "${email}",
+          to: form.to.value,
+          amount: parseFloat(form.amount.value)
+        }));
       }
     </script>
   </body></html>`);
@@ -132,18 +126,57 @@ function hashPassword(password: string): string {
   return Array.from(new Uint8Array(hashBuffer)).map(b => b.toString(16).padStart(2, "0")).join("");
 }
 
-async function handleLogin(socket: WebSocket, msg: any) {
-  const { email, password } = msg;
-  const user = await kv.get(["user", email]);
-  if (!user.value || user.value.password !== hashPassword(password)) {
-    socket.send(renderError("Invalid login credentials."));
-    return;
+async function handleMessage(socket: WebSocket, data: string) {
+  try {
+    const msg = JSON.parse(data);
+    switch (msg.type) {
+      case "login": await handleLogin(socket, msg); break;
+      case "signup": renderSignup(socket); break;
+      case "submitSignup": await handleSubmitSignup(socket, msg); break;
+      case "forgot": await handleForgotPassword(socket, msg); break;
+      case "send": await handleSend(socket, msg); break;
+      default: socket.send(renderError("Unknown message type."));
+    }
+  } catch (_) {
+    socket.send(renderError("Invalid message format."));
   }
-  if (!user.value.approved) {
-    socket.send(renderError("Account pending approval."));
-    return;
-  }
-  socket.send(`<div>Welcome ${user.value.name}. Balance: Σ${user.value.balance}</div>`);
+}
+
+function renderSignup(socket: WebSocket) {
+  socket.send(`<!DOCTYPE html><html><head><style>${sharedStyles()}</style></head><body>
+    <h1>Sign Up</h1>
+    <form onsubmit="submitSignup(event)">
+      <input name="name" placeholder="Name" required />
+      <input name="surname" placeholder="Surname" required />
+      <input name="id" placeholder="ID Number" required />
+      <input name="email" placeholder="Email" required />
+      <input name="phone" placeholder="Phone" required />
+      <input name="password" type="password" placeholder="Password" required />
+      <input name="idCopy" type="file" required />
+      <button type="submit">Submit</button>
+    </form>
+    <script>
+      const socket = window.socket || new WebSocket(location.href.replace('http', 'ws'));
+      function submitSignup(e) {
+        e.preventDefault();
+        const form = e.target;
+        const reader = new FileReader();
+        reader.onload = function() {
+          socket.send(JSON.stringify({
+            type: "submitSignup",
+            name: form.name.value,
+            surname: form.surname.value,
+            id: form.id.value,
+            email: form.email.value,
+            phone: form.phone.value,
+            password: form.password.value,
+            idCopy: reader.result
+          }));
+        };
+        reader.readAsDataURL(form.idCopy.files[0]);
+      }
+    </script>
+  </body></html>`);
 }
 
 async function handleSubmitSignup(socket: WebSocket, msg: any) {
