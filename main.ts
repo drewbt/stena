@@ -38,11 +38,11 @@ serve(async (req) => {
 
   // DOC SUBMIT
   if (path === "/submit-doc" && req.method === "POST") {
-    const { username, name, email, cell, password, fileName, fileData } = await req.json();
+    const { username, name, surname, email, cell, password, fileName, fileData } = await req.json();
     const hash = await hashPassword(password);
     const userKey = ["user", username];
-    await kv.set(userKey, { password: hash, name, email, cell, status: "pending" });
-    await sendSignupEmail({ to: "drewbt@gmail.com", name, username, email, cell, fileName, base64: fileData });
+    await kv.set(userKey, { password: hash, name, surname, email, cell, status: "pending" });
+    await sendSignupEmail({ to: "drewbt@gmail.com", name: name + ' ' + surname, username, email, cell, fileName, base64: fileData });
     return Response.json({ ok: true });
   }
 
@@ -69,6 +69,64 @@ serve(async (req) => {
       await kv.set(key, user.value);
     }
     return Response.json({ balance: user.value.balance });
+  }
+
+  // SERVE EMBEDDED HTML
+  if (path === "/" && req.method === "GET") {
+    return new Response(`<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Sifunastena</title>
+  <style>
+    body { background: #111; color: #fff; font-family: sans-serif; padding: 2rem; }
+    input, button { display: block; margin: 0.5rem 0; padding: 0.5rem; width: 100%; max-width: 300px; }
+    button { background: teal; color: white; border: none; cursor: pointer; }
+  </style>
+</head>
+<body>
+  <div class="screen" id="signup">
+    <h2>Create Account</h2>
+    <input id="name" placeholder="Full Name" />
+    <input id="surname" placeholder="Surname" />
+    <input id="email" placeholder="Email" type="email" />
+    <input id="cell" placeholder="Cell Number" />
+    <input id="username" placeholder="Username" />
+    <input id="password" type="password" placeholder="Password" />
+    <input id="doc" type="file" accept=".pdf,.png,.jpg,.jpeg" />
+    <button onclick="uploadDoc()">Submit</button>
+  </div>
+  <script>
+    async function uploadDoc() {
+      const file = document.getElementById('doc').files[0];
+      const reader = new FileReader();
+      reader.onload = async function () {
+        const base64 = reader.result.split(',')[1];
+        const payload = {
+          name: document.getElementById('name').value,
+          surname: document.getElementById('surname').value,
+          email: document.getElementById('email').value,
+          cell: document.getElementById('cell').value,
+          username: document.getElementById('username').value,
+          password: document.getElementById('password').value,
+          fileName: file.name,
+          fileData: base64
+        };
+        const res = await fetch('/submit-doc', {
+          method: 'POST',
+          body: JSON.stringify(payload)
+        });
+        const data = await res.json();
+        alert(data.ok ? 'Submitted. Await confirmation.' : 'Submission failed.');
+      };
+      reader.readAsDataURL(file);
+    }
+  </script>
+</body>
+</html>`, {
+      headers: { "content-type": "text/html" }
+    });
   }
 
   return new Response("Not found", { status: 404 });
