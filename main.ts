@@ -1,117 +1,185 @@
 // main.ts
 
+import { serve } from "https://deno.land/std@0.201.0/http/server.ts";
+
+const kv = await Deno.openKv();
+const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY")!;
+const ADMIN_EMAIL = "drewbt@gmail.com";
+const MONTHLY_ALLOWANCE = 50000;
+
+serve(async (req) => {
+  if (req.headers.get("upgrade") !== "websocket") {
+    return new Response("Upgrade to WebSocket required", { status: 400 });
+  }
+
+  const { socket, response } = Deno.upgradeWebSocket(req);
+  socket.addEventListener("open", () => renderLogin(socket));
+  socket.addEventListener("message", (e) => handleMessage(socket, e.data));
+  return response;
+});
+
+async function handleMessage(socket: WebSocket, data: string) {
+  try {
+    const msg = JSON.parse(data);
+    switch (msg.type) {
+      case "login": await handleLogin(socket, msg); break;
+      case "signup": renderSignup(socket); break;
+      case "submitSignup": await handleSubmitSignup(socket, msg); break;
+      case "forgot": await handleForgotPassword(socket, msg); break;
+      case "send": await handleSend(socket, msg); break;
+      default: socket.send(renderError("Unknown message type."));
+    }
+  } catch (_) {
+    socket.send(renderError("Invalid message format."));
+  }
+}
+
+function renderLogin(socket: WebSocket) {
+  socket.send(`<!DOCTYPE html><html><head><style>${sharedStyles()}</style></head><body>
+    <h1>SifunaStena</h1>
+    <form onsubmit="login(event)">
+      <input name="email" placeholder="Email" required />
+      <input name="password" type="password" placeholder="Password" required />
+      <button type="submit">Log In</button>
+    </form>
+    <button onclick="forgot()">Forgot Password</button>
+    <button onclick="signup()">Sign Up</button>
+    <script>
+      const socket = new WebSocket(location.href.replace('http', 'ws'));
+      function login(e) {
+        e.preventDefault();
+        const form = e.target;
+        socket.send(JSON.stringify({
+          type: "login",
+          email: form.email.value,
+          password: form.password.value
+        }));
+      }
+      function forgot() {
+        const email = prompt("Enter your email:");
+        if (email) socket.send(JSON.stringify({ type: "forgot", email }));
+      }
+      function signup() {
+        socket.send(JSON.stringify({ type: "signup" }));
+      }
+    </script>
+  </body></html>`);
+}
+
+function renderSignup(socket: WebSocket) {
+  socket.send(`<!DOCTYPE html><html><head><style>${sharedStyles()}</style></head><body>
+    <h1>Sign Up</h1>
+    <form onsubmit="submitSignup(event)">
+      <input name="name" placeholder="Name" required />
+      <input name="surname" placeholder="Surname" required />
+      <input name="id" placeholder="ID Number" required />
+      <input name="email" placeholder="Email" required />
+      <input name="phone" placeholder="Phone" required />
+      <input name="password" type="password" placeholder="Password" required />
+      <input name="idCopy" type="file" required />
+      <button type="submit">Submit</button>
+    </form>
+    <script>
+      const socket = new WebSocket(location.href.replace('http', 'ws'));
+      function submitSignup(e) {
+        e.preventDefault();
+        const form = e.target;
+        const reader = new FileReader();
+        reader.onload = function() {
+          socket.send(JSON.stringify({
+            type: "submitSignup",
+            name: form.name.value,
+            surname: form.surname.value,
+            id: form.id.value,
+            email: form.email.value,
+            phone: form.phone.value,
+            password: form.password.value,
+            idCopy: reader.result
+          }));
+        };
+        reader.readAsDataURL(form.idCopy.files[0]);
+      }
+    </script>
+  </body></html>`);
+}
+
 function sharedStyles() {
-  return `
-    <style>
-      body { background: black; color: white; margin: 0; font-family: system-ui; }
-      .wrapper { display: flex; align-items: center; justify-content: center; height: 100vh; }
-      .card { text-align: center; padding: 2em; max-width: 200px; width: 100%; }
-      .logo { font-size: 100px; color: gold; }
-      input, button { margin: 0.5em 0; width: 100%; padding: 0.5em; font-family: system-ui; }
-      .primary { background: #001D4A; color: white; padding: 1em; border: none; }
-      .secondary { background: #444; color: white; padding: 1em; border: none; }
-      .log { font-family: monospace; margin-top: 1em; }
-      .hidden { display: none; }
-    </style>
-  `;
+  return `body { font-family: sans-serif; padding: 2rem; }
+    form { display: flex; flex-direction: column; max-width: 300px; }
+    input, button { margin: 0.5rem 0; padding: 0.5rem; }`;
 }
 
-function renderLogin(message = "") {
-  return `
-    ${sharedStyles()}
-    <div class="wrapper">
-      <div class="card">
-        <div class="logo">Ϡ</div>
-        <input id='email' placeholder='Email' />
-        <input id='password' type='password' placeholder='Password' />
-        <button onclick='login()' class='primary'>Log In</button>
-        <button id='signupBtn' onclick='signup()' class='primary hidden'>Sign Up</button>
-        <div style='margin-top:1em;color:red;'>${message}</div>
-        <script>
-          window.onload = () => {
-            const ws = new WebSocket((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/ws');
-            ws.onmessage = e => document.body.innerHTML = e.data;
-            const emailInput = document.getElementById("email");
-            const passwordInput = document.getElementById("password");
-            const signupBtn = document.getElementById("signupBtn");
-            function checkAutoFill() {
-              if (!emailInput.value && !passwordInput.value) {
-                signupBtn.classList.remove("hidden");
-              } else {
-                signupBtn.classList.add("hidden");
-              }
-            }
-            setTimeout(checkAutoFill, 100);
-            window.login = () => {
-              const email = emailInput.value;
-              const password = passwordInput.value;
-              ws.send(JSON.stringify({ type: "login", email, password }));
-            };
-            window.signup = () => {
-              const name = prompt("First Name");
-              const surname = prompt("Surname");
-              const cell = prompt("Cell Number");
-              const email = emailInput.value;
-              const password = passwordInput.value;
-              const idb64 = btoa("dummy-id");
-              ws.send(JSON.stringify({ type: "signup", name, surname, cell, email, password, idb64 }));
-            };
-          };
-        </script>
-      </div>
-    </div>
-  `;
+function renderError(message: string) {
+  return `<div style='color: red;'>Error: ${message}</div>`;
 }
 
-function renderMain(user) {
-  return `
-    ${sharedStyles()}
-    <div class="wrapper">
-      <div class="card">
-        <div class="logo">Ϡ</div>
-        <div style='font-size:2em;'>Ϡ${user.balance}</div>
-        <p>Welcome, ${user.name}</p>
-        <input id='to' placeholder='Recipient Email' />
-        <input id='amount' type='number' placeholder='Amount' />
-        <input id='message' placeholder='Message (optional)' />
-        <button onclick='sendTx()' class='primary'>Send</button>
-        <button onclick='loadTxLog()' class='secondary'>View Transactions</button>
-        <script>
-          window.onload = () => {
-            const ws = new WebSocket((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/ws');
-            ws.onmessage = e => document.body.innerHTML = e.data;
-            window.sendTx = () => {
-              const to = document.getElementById("to").value;
-              const amount = parseFloat(document.getElementById("amount").value);
-              const message = document.getElementById("message").value;
-              ws.send(JSON.stringify({ type: "send", from: "${user.email}", to, amount, message }));
-            };
-            window.loadTxLog = () => {
-              ws.send(JSON.stringify({ type: "txlog" }));
-            };
-          };
-        </script>
-      </div>
-    </div>
-  `;
+function hashPassword(password: string): string {
+  const data = new TextEncoder().encode(password);
+  const hashBuffer = crypto.subtle.digestSync("SHA-256", data);
+  return Array.from(new Uint8Array(hashBuffer)).map(b => b.toString(16).padStart(2, "0")).join("");
 }
 
-function renderTxLog(txs) {
-  return `
-    ${sharedStyles()}
-    <div style="padding:2em;">
-      <h2>Transaction Log</h2>
-      <button onclick='location.reload()' class='primary'>Back</button>
-      <div class='log'>
-        ${txs.map(tx => `
-          <div style='margin-bottom:1em;'>
-            From: <b>${tx.from}</b> → To: <b>${tx.to}</b><br/>
-            Amount: Ϡ${tx.amount}<br/>
-            Message: ${tx.message}<br/>
-            Time: ${new Date(tx.time).toLocaleString()}
-          </div>
-        `).join("")}
-      </div>
-    </div>
-  `;
+async function handleLogin(socket: WebSocket, msg: any) {
+  const { email, password } = msg;
+  const user = await kv.get(["user", email]);
+  if (!user.value || user.value.password !== hashPassword(password)) {
+    socket.send(renderError("Invalid login credentials."));
+    return;
+  }
+  if (!user.value.approved) {
+    socket.send(renderError("Account pending approval."));
+    return;
+  }
+  socket.send(`<div>Welcome ${user.value.name}. Balance: Σ${user.value.balance}</div>`);
+}
+
+async function handleSubmitSignup(socket: WebSocket, msg: any) {
+  const { email, password, ...rest } = msg;
+  const user = { ...rest, email, password: hashPassword(password), balance: 0, approved: false };
+  await kv.set(["user", email], user);
+  await sendEmail(ADMIN_EMAIL, "New SifunaStena Signup", `New user signup for approval:<br>${email}<br><pre>${JSON.stringify(user, null, 2)}</pre>`);
+  socket.send("<div>Your application has been submitted. You will receive an email once it has been approved.</div>");
+}
+
+async function handleForgotPassword(socket: WebSocket, msg: any) {
+  const user = await kv.get(["user", msg.email]);
+  if (!user.value) {
+    socket.send(renderError("Email not registered."));
+    return;
+  }
+  await sendEmail(msg.email, "Password Reset", `Reset instructions here.`);
+  socket.send("<div>Password reset email sent.</div>");
+}
+
+async function handleSend(socket: WebSocket, msg: any) {
+  const { to, amount } = msg;
+  const from = msg.from;
+  const sender = await kv.get(["user", from]);
+  const recipient = await kv.get(["user", to]);
+  if (!sender.value || !recipient.value || sender.value.balance < amount) {
+    socket.send(renderError("Transfer failed."));
+    return;
+  }
+  sender.value.balance -= amount;
+  recipient.value.balance += amount;
+  await kv.set(["user", from], sender.value);
+  await kv.set(["user", to], recipient.value);
+  await kv.set(["tx", Date.now()], { from, to, amount });
+  socket.send(`<div>Sent Σ${amount} to ${to}</div>`);
+}
+
+async function sendEmail(to: string, subject: string, html: string) {
+  await fetch("https://api.resend.com/emails", {
+    method: "POST",
+    headers: {
+      "Authorization": `Bearer ${RESEND_API_KEY}`,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      from: "no-reply@sifunastena.com",
+      to,
+      subject,
+      html
+    })
+  });
 }
