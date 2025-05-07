@@ -1,5 +1,97 @@
 // main.ts
 
+function renderLogin(message = "") {
+  return `
+    <div style='font-family:system-ui; text-align:center; padding:2em; max-width:200px; margin:auto;'>
+      <div style='font-size:100px; color:gold;'>Ϡ</div>
+      <input id='email' placeholder='Email' style='margin:0.5em;width:100%;padding:0.5em;font-family:system-ui;' />
+      <input id='password' type='password' placeholder='Password' style='margin:0.5em;width:100%;padding:0.5em;font-family:system-ui;' />
+      <button onclick='login()' style='margin:0.5em;width:100%;padding:1em;background:#001D4A;color:white;font-family:system-ui;'>Log In</button>
+      <button id='signupBtn' onclick='signup()' style='display:none;margin:0.5em;width:100%;padding:1em;background:#001D4A;color:white;font-family:system-ui;'>Sign Up</button>
+      <div style='margin-top:1em;color:red;'>${message}</div>
+      <script>
+        const ws = new WebSocket((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/ws');
+        ws.onmessage = e => document.body.innerHTML = e.data;
+        const emailInput = document.getElementById("email");
+        const passwordInput = document.getElementById("password");
+        const signupBtn = document.getElementById("signupBtn");
+
+        function checkAutoFill() {
+          if (!emailInput.value && !passwordInput.value) {
+            signupBtn.style.display = "block";
+          } else {
+            signupBtn.style.display = "none";
+          }
+        }
+        setTimeout(checkAutoFill, 100);
+
+        function login() {
+          const email = emailInput.value;
+          const password = passwordInput.value;
+          ws.send(JSON.stringify({ type: "login", email, password }));
+        }
+        function signup() {
+          const name = prompt("First Name");
+          const surname = prompt("Surname");
+          const cell = prompt("Cell Number");
+          const email = emailInput.value;
+          const password = passwordInput.value;
+          const idb64 = btoa("dummy-id");
+          ws.send(JSON.stringify({ type: "signup", name, surname, cell, email, password, idb64 }));
+        }
+      </script>
+    </div>
+  `;
+}
+
+function renderMain(user) {
+  return `
+    <div style='font-family:system-ui; text-align:center; padding:2em; max-width:200px; margin:auto;'>
+      <div style='font-size:100px; color:gold;'>Ϡ</div>
+      <div style='font-size:2em;'>Ϡ${user.balance}</div>
+      <p>Welcome, ${user.name}</p>
+      <input id='to' placeholder='Recipient Email' style='margin:0.5em;width:100%;padding:0.5em;font-family:system-ui;' />
+      <input id='amount' type='number' placeholder='Amount' style='margin:0.5em;width:100%;padding:0.5em;font-family:system-ui;' />
+      <input id='message' placeholder='Message (optional)' style='margin:0.5em;width:100%;padding:0.5em;font-family:system-ui;' />
+      <button onclick='sendTx()' style='margin:0.5em;width:100%;padding:1em;background:#001D4A;color:white;font-family:system-ui;'>Send</button>
+      <button onclick='loadTxLog()' style='margin:0.5em;width:100%;padding:1em;background:#444;color:white;font-family:system-ui;'>View Transactions</button>
+      <script>
+        const ws = new WebSocket((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/ws');
+        ws.onmessage = e => document.body.innerHTML = e.data;
+        function sendTx() {
+          const to = document.getElementById("to").value;
+          const amount = parseFloat(document.getElementById("amount").value);
+          const message = document.getElementById("message").value;
+          ws.send(JSON.stringify({ type: "send", from: "${user.email}", to, amount, message }));
+        }
+        function loadTxLog() {
+          ws.send(JSON.stringify({ type: "txlog" }));
+        }
+      </script>
+    </div>
+  `;
+}
+
+function renderTxLog(txs) {
+  return `
+    <div style='font-family:system-ui;padding:2em;'>
+      <h2>Transaction Log</h2>
+      <button onclick='location.reload()' style='margin-bottom:1em;'>Back</button>
+      <div style='font-family:monospace;'>
+        ${txs.map(tx => `
+          <div style='margin-bottom:1em;'>
+            From: <b>${tx.from}</b> → To: <b>${tx.to}</b><br/>
+            Amount: Ϡ${tx.amount}<br/>
+            Message: ${tx.message}<br/>
+            Time: ${new Date(tx.time).toLocaleString()}
+          </div>
+        `).join("")}
+      </div>
+    </div>
+  `;
+}
+
+
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 
 const kv = await Deno.openKv();
