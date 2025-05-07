@@ -9,6 +9,22 @@ const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY");
 serve(async (req) => {
   const url = new URL(req.url);
 
+  if (url.pathname === "/") {
+    return new Response(`
+      <!DOCTYPE html>
+      <html>
+      <body style='background:black; color:white;'>
+        <script>
+          const ws = new WebSocket("ws://" + location.host + "/ws");
+          ws.onmessage = e => document.body.innerHTML = e.data;
+        </script>
+      </body>
+      </html>
+    `, {
+      headers: { "content-type": "text/html" }
+    });
+  }
+
   if (url.pathname === "/ws") {
     const { socket, response } = Deno.upgradeWebSocket(req);
     let email = "";
@@ -68,16 +84,23 @@ serve(async (req) => {
         await kv.set(["user", msg.from], fromUser);
         await kv.set(["user", msg.to], toUser);
 
-        await kv.set(["tx", Date.now()], {
+        const tx = {
           from: msg.from,
           to: msg.to,
           amount: msg.amount,
           message: msg.message,
           time: new Date().toISOString(),
-        });
+        };
+        await kv.set(["tx", Date.now()], tx);
 
         for (const ws of sockets.get(msg.from) || []) ws.send(renderMain(fromUser));
         for (const ws of sockets.get(msg.to) || []) ws.send(renderMain(toUser));
+      } else if (msg.type === "txlog") {
+        const txs = [];
+        for await (const entry of kv.list({ prefix: ["tx"] })) {
+          txs.push(entry.value);
+        }
+        socket.send(renderTxLog(txs));
       }
     };
 
@@ -100,85 +123,93 @@ serve(async (req) => {
     return new Response("Approved");
   }
 
+  if (url.pathname === "/logs") {
+    const logs = [];
+    for await (const entry of kv.list({ prefix: ["tx"] })) {
+      logs.push(entry.value);
+    }
+    return new Response(JSON.stringify(logs, null, 2), {
+      headers: { "content-type": "application/json" },
+    });
+  }
+
   return new Response("Not Found", { status: 404 });
 });
 
 function renderLogin(message = "") {
-  const script = JSON.stringify(`
-    (() => {
-      const ws = new WebSocket('ws://' + location.host + '/ws');
-      ws.onmessage = e => document.body.innerHTML = e.data;
-      window.login = () => {
-        const email = document.getElementById('email').value;
-        const password = document.getElementById('password').value;
-        ws.send(JSON.stringify({ type: 'login', email, password }));
-      };
-      window.showSignup = () => {
-        document.body.innerHTML = \
-          '<div style="text-align:center;padding:2em;">' +
-          '<h1 style="font-size:5em; color:gold;">Ϡ</h1>' +
-          '<input id="name" placeholder="First Name" style="width:100%;margin:0.5em;padding:0.5em;" />' +
-          '<input id="surname" placeholder="Surname" style="width:100%;margin:0.5em;padding:0.5em;" />' +
-          '<input id="cell" placeholder="Cell Number" style="width:100%;margin:0.5em;padding:0.5em;" />' +
-          '<input id="email" placeholder="Email" style="width:100%;margin:0.5em;padding:0.5em;" />' +
-          '<input id="password" type="password" placeholder="Password" style="width:100%;margin:0.5em;padding:0.5em;" />' +
-          '<button onclick="signup()" style="width:100%;padding:0.75em;background:green;color:white;border:none;">Submit</button>' +
-          '</div>' +
-          '<script>' +
-          'window.signup = () => {' +
-          ' const data = {' +
-          '   type: "signup",' +
-          '   name: document.getElementById("name").value,' +
-          '   surname: document.getElementById("surname").value,' +
-          '   cell: document.getElementById("cell").value,' +
-          '   email: document.getElementById("email").value,' +
-          '   password: document.getElementById("password").value,' +
-          '   idb64: btoa("dummy-id")' +
-          ' };' +
-          ' ws.send(JSON.stringify(data));' +
-          '};' +
-          '<\/script>';
-      };
-    })();
-  `);
-  return `
-    <div style='text-align:center; padding:2em;'>
-      <h1 style='font-size:5em; color:gold;'>Ϡ</h1>
-      <input id='email' placeholder='Email' style='width:100%;margin:0.5em;padding:0.5em;' />
-      <input id='password' type='password' placeholder='Password' style='width:100%;margin:0.5em;padding:0.5em;' />
-      <button onclick='login()' style='width:100%;padding:0.75em;background:navy;color:white;border:none;'>Log In</button>
-      <button onclick='showSignup()' style='width:100%;padding:0.75em;background:#004;color:white;border:none;margin-top:0.5em;'>Sign Up</button>
-      <div id='message' style='margin-top:1em;color:red;'>${message}</div>
-    </div>
-    <script>
-      eval(${script});
-    </script>`;
-}
-
-function renderMain(user) {
-  const script = JSON.stringify(`
-    (() => {
-      const ws = new WebSocket('ws://' + location.host + '/ws');
-      ws.onmessage = e => document.body.innerHTML = e.data;
-      window.sendTx = () => {
-        const to = document.getElementById('to').value;
-        const amount = parseFloat(document.getElementById('amount').value);
-        const message = document.getElementById('message').value;
-        ws.send(JSON.stringify({ type: 'send', from: '${user.email}', to, amount, message }));
-      };
-    })();
-  `);
   return `
     <div style='text-align:center;padding:2em;'>
-      <h1 style='font-size:5em; color:gold;'>Ϡ</h1>
+      <h1 style='font-size:5em;color:gold;'>Ϡ</h1>
+      <input id='email' placeholder='Email' style='margin:0.5em;width:100%;padding:0.5em;' />
+      <input id='password' type='password' placeholder='Password' style='margin:0.5em;width:100%;padding:0.5em;' />
+      <button onclick='login()' style='margin:0.5em;width:100%;padding:1em;background:navy;color:white;'>Log In</button>
+      <button onclick='signup()' style='margin:0.5em;width:100%;padding:1em;background:green;color:white;'>Sign Up</button>
+      <div style='margin-top:1em;color:red;'>${message}</div>
+      <script>
+        const ws = new WebSocket("ws://" + location.host + "/ws");
+        ws.onmessage = e => document.body.innerHTML = e.data;
+        function login() {
+          const email = document.getElementById("email").value;
+          const password = document.getElementById("password").value;
+          ws.send(JSON.stringify({ type: "login", email, password }));
+        }
+        function signup() {
+          const name = prompt("First Name");
+          const surname = prompt("Surname");
+          const cell = prompt("Cell Number");
+          const email = document.getElementById("email").value;
+          const password = document.getElementById("password").value;
+          const idb64 = btoa("dummy-id");
+          ws.send(JSON.stringify({ type: "signup", name, surname, cell, email, password, idb64 }));
+        }
+      </script>
+    </div>
+  `;
+}
+
+function renderMain(user: any) {
+  return `
+    <div style='text-align:center;padding:2em;'>
+      <h1 style='font-size:5em;color:gold;'>Ϡ</h1>
       <div style='font-size:2em;'>Ϡ${user.balance}</div>
       <p>Welcome, ${user.name}</p>
-      <input id='to' placeholder='Recipient Email' style='width:100%;margin:0.5em;padding:0.5em;' />
-      <input id='amount' type='number' placeholder='Amount' style='width:100%;margin:0.5em;padding:0.5em;' />
-      <input id='message' placeholder='Message (optional)' style='width:100%;margin:0.5em;padding:0.5em;' />
-      <button onclick='sendTx()' style='width:100%;padding:0.75em;background:navy;color:white;border:none;'>Send</button>
+      <input id='to' placeholder='Recipient Email' style='margin:0.5em;width:100%;padding:0.5em;' />
+      <input id='amount' type='number' placeholder='Amount' style='margin:0.5em;width:100%;padding:0.5em;' />
+      <input id='message' placeholder='Message (optional)' style='margin:0.5em;width:100%;padding:0.5em;' />
+      <button onclick='sendTx()' style='margin:0.5em;width:100%;padding:1em;background:navy;color:white;'>Send</button>
+      <button onclick='loadTxLog()' style='margin:0.5em;width:100%;padding:1em;background:#444;color:white;'>View Transactions</button>
+      <script>
+        const ws = new WebSocket("ws://" + location.host + "/ws");
+        ws.onmessage = e => document.body.innerHTML = e.data;
+        function sendTx() {
+          const to = document.getElementById("to").value;
+          const amount = parseFloat(document.getElementById("amount").value);
+          const message = document.getElementById("message").value;
+          ws.send(JSON.stringify({ type: "send", from: "${user.email}", to, amount, message }));
+        }
+        function loadTxLog() {
+          ws.send(JSON.stringify({ type: "txlog" }));
+        }
+      </script>
     </div>
-    <script>
-      eval(${script});
-    </script>`;
+  `;
+}
+
+function renderTxLog(txs: any[]) {
+  return `
+    <div style='padding:2em;'>
+      <h2>Transaction Log</h2>
+      <button onclick='location.reload()' style='margin-bottom:1em;'>Back</button>
+      <div style='font-family:monospace;'>
+        ${txs.map(tx => `
+          <div style='margin-bottom:1em;'>
+            From: <b>${tx.from}</b> → To: <b>${tx.to}</b><br/>
+            Amount: Ϡ${tx.amount}<br/>
+            Message: ${tx.message}<br/>
+            Time: ${new Date(tx.time).toLocaleString()}
+          </div>
+        `).join("")}
+      </div>
+    </div>
+  `;
 }
