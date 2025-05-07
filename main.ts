@@ -12,17 +12,13 @@ serve(async (req) => {
   if (url.pathname === "/") {
     return new Response(`
       <!DOCTYPE html>
-      <html>
-      <body style='background:black; color:white;'>
-        <script>
-          const ws = new WebSocket((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/ws');
-          ws.onmessage = e => document.body.innerHTML = e.data;
-        </script>
-      </body>
-      </html>
-    `, {
-      headers: { "content-type": "text/html" }
-    });
+      <html><body style='background:black;color:white;'>
+      <script>
+        const ws = new WebSocket((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/ws');
+        ws.onmessage = e => document.body.innerHTML = e.data;
+      </script>
+      </body></html>
+    `, { headers: { "content-type": "text/html" } });
   }
 
   if (url.pathname === "/ws") {
@@ -84,14 +80,13 @@ serve(async (req) => {
         await kv.set(["user", msg.from], fromUser);
         await kv.set(["user", msg.to], toUser);
 
-        const tx = {
+        await kv.set(["tx", Date.now()], {
           from: msg.from,
           to: msg.to,
           amount: msg.amount,
           message: msg.message,
           time: new Date().toISOString(),
-        };
-        await kv.set(["tx", Date.now()], tx);
+        });
 
         for (const ws of sockets.get(msg.from) || []) ws.send(renderMain(fromUser));
         for (const ws of sockets.get(msg.to) || []) ws.send(renderMain(toUser));
@@ -135,81 +130,3 @@ serve(async (req) => {
 
   return new Response("Not Found", { status: 404 });
 });
-
-function renderLogin(message = "") {
-  return `
-    <div style='text-align:center;padding:2em;'>
-      <h1 style='font-size:5em;color:gold;'>Ϡ</h1>
-      <input id='email' placeholder='Email' style='margin:0.5em;width:100%;padding:0.5em;' />
-      <input id='password' type='password' placeholder='Password' style='margin:0.5em;width:100%;padding:0.5em;' />
-      <button onclick='login()' style='margin:0.5em;width:100%;padding:1em;background:navy;color:white;'>Log In</button>
-      <button onclick='signup()' style='margin:0.5em;width:100%;padding:1em;background:green;color:white;'>Sign Up</button>
-      <div style='margin-top:1em;color:red;'>${message}</div>
-      <script>
-        const ws = new WebSocket((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/ws');
-        ws.onmessage = e => document.body.innerHTML = e.data;
-        function login() {
-          const email = document.getElementById("email").value;
-          const password = document.getElementById("password").value;
-          ws.send(JSON.stringify({ type: "login", email, password }));
-        }
-        function signup() {
-          const name = prompt("First Name");
-          const surname = prompt("Surname");
-          const cell = prompt("Cell Number");
-          const email = document.getElementById("email").value;
-          const password = document.getElementById("password").value;
-          const idb64 = btoa("dummy-id");
-          ws.send(JSON.stringify({ type: "signup", name, surname, cell, email, password, idb64 }));
-        }
-      </script>
-    </div>
-  `;
-}
-
-function renderMain(user: any) {
-  return `
-    <div style='text-align:center;padding:2em;'>
-      <h1 style='font-size:5em;color:gold;'>Ϡ</h1>
-      <div style='font-size:2em;'>Ϡ${user.balance}</div>
-      <p>Welcome, ${user.name}</p>
-      <input id='to' placeholder='Recipient Email' style='margin:0.5em;width:100%;padding:0.5em;' />
-      <input id='amount' type='number' placeholder='Amount' style='margin:0.5em;width:100%;padding:0.5em;' />
-      <input id='message' placeholder='Message (optional)' style='margin:0.5em;width:100%;padding:0.5em;' />
-      <button onclick='sendTx()' style='margin:0.5em;width:100%;padding:1em;background:navy;color:white;'>Send</button>
-      <button onclick='loadTxLog()' style='margin:0.5em;width:100%;padding:1em;background:#444;color:white;'>View Transactions</button>
-      <script>
-        const ws = new WebSocket((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/ws');
-        ws.onmessage = e => document.body.innerHTML = e.data;
-        function sendTx() {
-          const to = document.getElementById("to").value;
-          const amount = parseFloat(document.getElementById("amount").value);
-          const message = document.getElementById("message").value;
-          ws.send(JSON.stringify({ type: "send", from: "${user.email}", to, amount, message }));
-        }
-        function loadTxLog() {
-          ws.send(JSON.stringify({ type: "txlog" }));
-        }
-      </script>
-    </div>
-  `;
-}
-
-function renderTxLog(txs: any[]) {
-  return `
-    <div style='padding:2em;'>
-      <h2>Transaction Log</h2>
-      <button onclick='location.reload()' style='margin-bottom:1em;'>Back</button>
-      <div style='font-family:monospace;'>
-        ${txs.map(tx => `
-          <div style='margin-bottom:1em;'>
-            From: <b>${tx.from}</b> → To: <b>${tx.to}</b><br/>
-            Amount: Ϡ${tx.amount}<br/>
-            Message: ${tx.message}<br/>
-            Time: ${new Date(tx.time).toLocaleString()}
-          </div>
-        `).join("")}
-      </div>
-    </div>
-  `;
-}
