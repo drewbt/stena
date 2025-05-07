@@ -10,7 +10,6 @@ const MONTHLY_ALLOWANCE = 50000;
 serve(async (req) => {
   const upgrade = req.headers.get("upgrade");
 
-  // Serve fallback browser landing page if not WebSocket
   if (!upgrade || upgrade.toLowerCase() !== "websocket") {
     return new Response(`<!DOCTYPE html>
       <html><head><style>${sharedStyles()}</style></head>
@@ -59,8 +58,8 @@ function renderLogin(socket: WebSocket) {
       <input name="password" type="password" placeholder="Password" required />
       <button type="submit">Log In</button>
     </form>
-    <button onclick="forgot()">Forgot Password</button>
-    <button onclick="signup()">Sign Up</button>
+    <button id="forgotBtn">Forgot Password</button>
+    <button id="signupBtn">Sign Up</button>
     <script>
       const socket = new WebSocket(location.href.replace('http', 'ws'));
       function login(e) {
@@ -72,13 +71,13 @@ function renderLogin(socket: WebSocket) {
           password: form.password.value
         }));
       }
-      function forgot() {
+      document.getElementById("forgotBtn").onclick = function() {
         const email = prompt("Enter your email:");
         if (email) socket.send(JSON.stringify({ type: "forgot", email }));
-      }
-      function signup() {
+      };
+      document.getElementById("signupBtn").onclick = function() {
         socket.send(JSON.stringify({ type: "signup" }));
-      }
+      };
     </script>
   </body></html>`);
 }
@@ -169,8 +168,7 @@ async function handleForgotPassword(socket: WebSocket, msg: any) {
 }
 
 async function handleSend(socket: WebSocket, msg: any) {
-  const { to, amount } = msg;
-  const from = msg.from;
+  const { to, amount, from } = msg;
   const sender = await kv.get(["user", from]);
   const recipient = await kv.get(["user", to]);
   if (!sender.value || !recipient.value || sender.value.balance < amount) {
