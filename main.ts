@@ -1,21 +1,16 @@
 // main.ts
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
-import { sendSignupEmail } from "./resend.ts";
 const kv = await Deno.openKv();
 
-async function hashPassword(password: string): Promise<string> {
-  const data = new TextEncoder().encode(password);
-  const hash = await crypto.subtle.digest("SHA-256", data);
-  return Array.from(new Uint8Array(hash)).map(b => b.toString(16).padStart(2, "0")).join("");
+function logAction(action: string, meta: Record<string, unknown>) {
+  const time = Date.now();
+  const log = { action, time, ...meta };
+  kv.set(["log", time], log);
 }
 
-function currentMonthKey(): string {
-  const now = new Date();
-  return `${now.getFullYear()}-${(now.getMonth() + 1).toString().padStart(2, '0')}`;
-}
-
-async function sendUserActivationEmail(email: string) {
+async function sendResetEmail(email: string, token: string) {
   const resendKey = Deno.env.get("RESEND_API_KEY");
+  const link = `https://sifunastena.deno.dev/reset-password?token=${token}`;
   await fetch("https://api.resend.com/emails", {
     method: "POST",
     headers: {
@@ -23,129 +18,106 @@ async function sendUserActivationEmail(email: string) {
       "Content-Type": "application/json"
     },
     body: JSON.stringify({
-      from: "Sifunastena <onboarding@sifunastena.com>",
+      from: "SifunaStena <reset@sifunastena.com>",
       to: email,
-      subject: "Account Activated!",
-      html: `<p>Congratulations! 🎉</p><p>You have received a sum of Fifty Stena (Ϡ50.000) in your <strong>SifunaStena</strong> account.</p>`
+      subject: "Reset your SifunaStena password",
+      html: `<p>To reset your password, click below:</p><p><a href='${link}'>Reset Password</a></p>`
     })
   });
 }
 
+const sockets = new Map<string, Set<WebSocket>>();
+
 serve(async (req) => {
+  const cookies = req.headers.get("cookie") || "";
   const url = new URL(req.url);
   const path = url.pathname;
 
-  if (path === "/" && req.method === "GET") {
-    try {
-      const html = await Deno.readTextFile("./index.html");
-      return new Response(html, { headers: { "content-type": "text/html" } });
-    } catch (err) {
-      return new Response("Error loading index.html", { status: 500 });
-    }
+  if (path === "/ws" && req.headers.get("upgrade") === "websocket") {
+    const { socket, response } = Deno.upgradeWebSocket(req);
+    const user = url.searchParams.get("user");
+    if (!user) return new Response("Missing user", { status: 400 });
+    if (!sockets.has(user)) sockets.set(user, new Set());
+    sockets.get(user)?.add(socket);
+    socket.onclose = () => sockets.get(user)?.delete(socket);
+    return response;
   }
 
-  // USER APPROVAL LOGIC
-  if (path === "/approve" && req.method === "GET") {
-    const cookies = req.headers.get("cookie") || "";
-    const isAdmin = cookies.includes("username=drewbt@gmail.com");
-    if (!isAdmin) return new Response("Unauthorized", { status: 401 });
-
-    const username = url.searchParams.get("user");
-    if (!username) return new Response("Missing user", { status: 400 });
-    const userKey = ["user", username];
-    const user = await kv.get(userKey);
-    if (!user.value) return new Response("User not found", { status: 404 });
-    await kv.set(userKey, { ...user.value, status: "active", balance: 50000, lastDrop: currentMonthKey() });
-    await sendUserActivationEmail(user.value.email);
-    return new Response("User approved and funded.");
-  }
-
-  if (path === "/decline" && req.method === "GET") {
-    const username = url.searchParams.get("user");
-    const userKey = ["user", username];
-    await kv.delete(userKey);
-    return new Response("User declined and deleted.");
-  }
-
-  // DOC SUBMIT
-  if (path === "/submit-doc" && req.method === "POST") {
-    const { username, name, surname, email, cell, password, fileName, fileData } = await req.json();
-    const hash = await hashPassword(password);
-    const userKey = ["user", username];
-    await kv.set(userKey, { password: hash, name, surname, email, cell, status: "pending" });
-    await sendSignupEmail({ to: "drewbt@gmail.com", name: name + ' ' + surname, username, email, cell, fileName, base64: fileData });
+  // RESET EMAIL REQUEST
+  if (path === "/reset" && req.method === "POST") {
+    const { email } = await req.json();
+    const token = crypto.randomUUID();
+    await kv.set(["reset", token], { email, created: Date.now() });
+    await sendResetEmail(email, token);
+    logAction("reset-request", { email, ip: req.headers.get("x-forwarded-for") });
     return new Response("OK");
   }
 
-  // LOGIN
-  if (path === "/login" && req.method === "POST") {
-    const { username, password } = await req.json();
-    const userKey = ["user", username];
-    const user = await kv.get(userKey);
-    if (!user.value || user.value.status !== "active") return Response.json({ ok: false });
-    const hash = await hashPassword(password);
-    const ok = user.value.password === hash;
-    return new Response(JSON.stringify({ ok }), {
-      headers: { "set-cookie": `username=${username}; Path=/; HttpOnly` }
-    });
-  }
+  // HANDLE RESET FORM SUBMIT (POST)
+  if (path === "/reset-password" && req.method === "POST") {
+    const { token, password } = await req.json();
+    const reset = await kv.get(["reset", token]);
+    if (!reset.value) return new Response("Invalid token", { status: 400 });
+    const { email } = reset.value;
+    for await (const entry of kv.list({ prefix: ["user"] })) {
+      if (entry.value.email === email) {
+        const userKey = entry.key;
+        const data = entry.value;
+        const hash = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(password));
+        data.password = Array.from(new Uint8Array(hash)).map(b => b.toString(16).padStart(2, "0")).join("");
+        await kv.set(userKey, data);
+        if (sockets.has(userKey[1])) sockets.get(userKey[1])?.forEach(s => s.send(JSON.stringify({ type: 'balance-update' })));
 
-  // BALANCE W/ MONTHLY DROP
-  if (path === "/balance" && req.method === "POST") {
-    const { username } = await req.json();
-    const key = ["user", username];
-    const user = await kv.get(key);
-    if (!user.value) return Response.json({ balance: 0 });
-    const month = currentMonthKey();
-    if (user.value.status === "active" && user.value.lastDrop !== month) {
-      user.value.balance += 50000;
-      user.value.lastDrop = month;
-      await kv.set(key, user.value);
+        await kv.delete(["reset", token]);
+        logAction("password-reset", { user: userKey[1], ip: req.headers.get("x-forwarded-for") });
+        return new Response("Password reset successfully");
+      }
     }
-    return Response.json({ balance: user.value.balance });
+    return new Response("User not found", { status: 404 });
   }
 
-  // SEND STENA
-  if (path === "/send" && req.method === "POST") {
-    const { username, to, amount, message } = await req.json();
-    if (!username || !to || !amount || isNaN(amount)) return new Response("Invalid send request", { status: 400 });
-    const senderKey = ["user", username];
-    const receiverKey = ["user", to];
-    const [sender, receiver] = await Promise.all([kv.get(senderKey), kv.get(receiverKey)]);
-    if (!sender.value || !receiver.value || sender.value.balance < amount) {
-      return new Response("Transfer error", { status: 400 });
+  // HANDLE RESET PAGE (GET)
+  if (path === "/reset-password" && req.method === "GET") {
+    const html = `<!DOCTYPE html><html><body>
+      <form method="POST" onsubmit="event.preventDefault(); fetch('/reset-password', { method: 'POST', body: JSON.stringify({ token: new URLSearchParams(location.search).get('token'), password: document.getElementById('pw').value }) }).then(r => r.text()).then(alert);">
+        <h2>Reset Password</h2>
+        <input id="pw" type="password" placeholder="New password" required />
+        <button type="submit">Reset</button>
+      </form>
+    </body></html>`;
+    return new Response(html, { headers: { "content-type": "text/html" } });
+  }
+
+  // LOG VIEWER FOR drewbt@gmail.com
+  if (path === "/logs" && req.method === "GET") {
+    if (!cookies.includes("username=drewbt@gmail.com")) return new Response("Unauthorized", { status: 401 });
+    let html = `<!DOCTYPE html><html><head><style>
+      body { font-family: system-ui; background: #111; color: #fff; padding: 2rem; }
+      table { width: 100%; border-collapse: collapse; margin-top: 1rem; }
+      th, td { border: 1px solid #444; padding: 0.5rem; text-align: left; }
+      th { background: #222; }
+      input { margin: 0.5rem 0; padding: 0.4rem; width: 200px; background: #222; color: #fff; border: 1px solid #444; }
+    </style></head><body>
+    <h2>System Logs</h2>
+    <input placeholder="Filter by action..." oninput="filter(this.value)">
+    <table><thead><tr><th>Time</th><th>Action</th><th>User</th><th>IP</th><th>Meta</th></tr></thead><tbody id="logbody">`;
+
+    const logs = [];
+    for await (const entry of kv.list({ prefix: ["log"] })) logs.push(entry.value);
+    logs.sort((a, b) => b.time - a.time);
+    for (const log of logs) {
+      html += `<tr><td>${new Date(log.time).toLocaleString()}</td><td>${log.action}</td><td>${log.user || log.email || "-"}</td><td>${log.ip || "-"}</td><td><pre>${JSON.stringify(log, null, 2)}</pre></td></tr>`;
     }
-    const txTime = Date.now();
-    const entry = { from: username, to, amount, datetime: txTime, message: message || "" };
-    await kv.atomic()
-      .check(sender)
-      .check(receiver)
-      .set(senderKey, { ...sender.value, balance: sender.value.balance - amount })
-      .set(receiverKey, { ...receiver.value, balance: receiver.value.balance + amount })
-      .set(["tx", username, txTime], entry)
-      .set(["tx", to, txTime], entry)
-      .commit();
-    return Response.json({ ok: true });
-  }
 
-  // GET TX HISTORY
-  if (path === "/tx" && req.method === "POST") {
-    const { username } = await req.json();
-    const prefix = ["tx", username];
-    const txs = [];
-    for await (const entry of kv.list({ prefix })) {
-      txs.push(entry.value);
-    }
-    txs.sort((a, b) => b.datetime - a.datetime);
-    return Response.json({ transactions: txs });
+    html += `</tbody></table>
+    <script>
+      function filter(txt) {
+        document.querySelectorAll("#logbody tr").forEach(row => {
+          row.style.display = row.innerText.toLowerCase().includes(txt.toLowerCase()) ? '' : 'none';
+        });
+      }
+    </script>
+    </body></html>`;
+    return new Response(html, { headers: { "content-type": "text/html" } });
   }
-
-  // WELCOME PAGE
-  if (path === "/welcome" && req.method === "GET") {
-    return new Response(`<!DOCTYPE html><html><head><title>Welcome</title></head><body><h1>Welcome to SifunaStena</h1><p>You will receive an email once you have been verified.</p></body></html>`, {
-      headers: { "content-type": "text/html" }
-    });
-  }
-
-  return new Response("Not found", { status: 404 });
 });
