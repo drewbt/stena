@@ -150,8 +150,18 @@
 
     function resetPassword() {
   const email = document.getElementById("login-username").value;
-  if (!email.includes("@")) return alert("Enter a valid email above first");
+  if (!email.includes("@")) {
+    alert("Enter a valid email above first");
+    return;
+  }
   fetch("/reset", { method: "POST", body: JSON.stringify({ email }) });
+  const msg = document.getElementById("login-message");
+  document.getElementById("login-status").style.visibility = "visible";
+  msg.textContent = "Reset email sent, please check in a couple of moments.";
+}
+  fetch("/reset", { method: "POST", body: JSON.stringify({ email }) });
+  alert("If this email is registered, you'll receive reset instructions.");
+}) });
   alert("If this email is registered, you'll receive reset instructions.");
 }) });
   alert("If this email is registered, you'll receive reset instructions.");
