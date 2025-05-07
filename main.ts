@@ -15,7 +15,7 @@ serve(async (req) => {
       <html>
       <body style='background:black; color:white;'>
         <script>
-          const ws = new WebSocket("(location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + "/ws");
+          const ws = new WebSocket((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/ws');
           ws.onmessage = e => document.body.innerHTML = e.data;
         </script>
       </body>
@@ -146,7 +146,7 @@ function renderLogin(message = "") {
       <button onclick='signup()' style='margin:0.5em;width:100%;padding:1em;background:green;color:white;'>Sign Up</button>
       <div style='margin-top:1em;color:red;'>${message}</div>
       <script>
-        const ws = new WebSocket("(location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + "/ws");
+        const ws = new WebSocket((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/ws');
         ws.onmessage = e => document.body.innerHTML = e.data;
         function login() {
           const email = document.getElementById("email").value;
@@ -179,7 +179,7 @@ function renderMain(user: any) {
       <button onclick='sendTx()' style='margin:0.5em;width:100%;padding:1em;background:navy;color:white;'>Send</button>
       <button onclick='loadTxLog()' style='margin:0.5em;width:100%;padding:1em;background:#444;color:white;'>View Transactions</button>
       <script>
-        const ws = new WebSocket("(location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + "/ws");
+        const ws = new WebSocket((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/ws');
         ws.onmessage = e => document.body.innerHTML = e.data;
         function sendTx() {
           const to = document.getElementById("to").value;
