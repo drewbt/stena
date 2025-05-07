@@ -14,18 +14,49 @@ function currentMonthKey(): string {
   return `${now.getFullYear()}-${(now.getMonth() + 1).toString().padStart(2, '0')}`;
 }
 
+async function sendUserActivationEmail(email: string) {
+  const resendKey = Deno.env.get("RESEND_API_KEY");
+  await fetch("https://api.resend.com/emails", {
+    method: "POST",
+    headers: {
+      "Authorization": `Bearer ${resendKey}`,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      from: "Sifunastena <onboarding@sifunastena.com>",
+      to: email,
+      subject: "Account Activated!",
+      html: `<p>Congratulations! 🎉</p><p>You have received a sum of Fifty Stena (Ϡ50.000) in your <strong>SifunaStena</strong> account.</p>`
+    })
+  });
+}
+
 serve(async (req) => {
   const url = new URL(req.url);
   const path = url.pathname;
 
+  if (path === "/" && req.method === "GET") {
+    try {
+      const html = await Deno.readTextFile("./index.html");
+      return new Response(html, { headers: { "content-type": "text/html" } });
+    } catch (err) {
+      return new Response("Error loading index.html", { status: 500 });
+    }
+  }
+
   // USER APPROVAL LOGIC
   if (path === "/approve" && req.method === "GET") {
+    const cookies = req.headers.get("cookie") || "";
+    const isAdmin = cookies.includes("username=drewbt@gmail.com");
+    if (!isAdmin) return new Response("Unauthorized", { status: 401 });
+
     const username = url.searchParams.get("user");
     if (!username) return new Response("Missing user", { status: 400 });
     const userKey = ["user", username];
     const user = await kv.get(userKey);
     if (!user.value) return new Response("User not found", { status: 404 });
     await kv.set(userKey, { ...user.value, status: "active", balance: 50000, lastDrop: currentMonthKey() });
+    await sendUserActivationEmail(user.value.email);
     return new Response("User approved and funded.");
   }
 
@@ -43,7 +74,7 @@ serve(async (req) => {
     const userKey = ["user", username];
     await kv.set(userKey, { password: hash, name, surname, email, cell, status: "pending" });
     await sendSignupEmail({ to: "drewbt@gmail.com", name: name + ' ' + surname, username, email, cell, fileName, base64: fileData });
-    return Response.json({ ok: true });
+    return new Response("OK");
   }
 
   // LOGIN
@@ -53,7 +84,10 @@ serve(async (req) => {
     const user = await kv.get(userKey);
     if (!user.value || user.value.status !== "active") return Response.json({ ok: false });
     const hash = await hashPassword(password);
-    return Response.json({ ok: user.value.password === hash });
+    const ok = user.value.password === hash;
+    return new Response(JSON.stringify({ ok }), {
+      headers: { "set-cookie": `username=${username}; Path=/; HttpOnly` }
+    });
   }
 
   // BALANCE W/ MONTHLY DROP
@@ -71,60 +105,44 @@ serve(async (req) => {
     return Response.json({ balance: user.value.balance });
   }
 
-  // SERVE EMBEDDED HTML
-  if (path === "/" && req.method === "GET") {
-    return new Response(`<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Sifunastena</title>
-  <style>
-    body { background: #111; color: #fff; font-family: sans-serif; padding: 2rem; }
-    input, button { display: block; margin: 0.5rem 0; padding: 0.5rem; width: 100%; max-width: 300px; }
-    button { background: teal; color: white; border: none; cursor: pointer; }
-  </style>
-</head>
-<body>
-  <div class="screen" id="signup">
-    <h2>Create Account</h2>
-    <input id="name" placeholder="Full Name" />
-    <input id="surname" placeholder="Surname" />
-    <input id="email" placeholder="Email" type="email" />
-    <input id="cell" placeholder="Cell Number" />
-    <input id="username" placeholder="Username" />
-    <input id="password" type="password" placeholder="Password" />
-    <input id="doc" type="file" accept=".pdf,.png,.jpg,.jpeg" />
-    <button onclick="uploadDoc()">Submit</button>
-  </div>
-  <script>
-    async function uploadDoc() {
-      const file = document.getElementById('doc').files[0];
-      const reader = new FileReader();
-      reader.onload = async function () {
-        const base64 = reader.result.split(',')[1];
-        const payload = {
-          name: document.getElementById('name').value,
-          surname: document.getElementById('surname').value,
-          email: document.getElementById('email').value,
-          cell: document.getElementById('cell').value,
-          username: document.getElementById('username').value,
-          password: document.getElementById('password').value,
-          fileName: file.name,
-          fileData: base64
-        };
-        const res = await fetch('/submit-doc', {
-          method: 'POST',
-          body: JSON.stringify(payload)
-        });
-        const data = await res.json();
-        alert(data.ok ? 'Submitted. Await confirmation.' : 'Submission failed.');
-      };
-      reader.readAsDataURL(file);
+  // SEND STENA
+  if (path === "/send" && req.method === "POST") {
+    const { username, to, amount, message } = await req.json();
+    if (!username || !to || !amount || isNaN(amount)) return new Response("Invalid send request", { status: 400 });
+    const senderKey = ["user", username];
+    const receiverKey = ["user", to];
+    const [sender, receiver] = await Promise.all([kv.get(senderKey), kv.get(receiverKey)]);
+    if (!sender.value || !receiver.value || sender.value.balance < amount) {
+      return new Response("Transfer error", { status: 400 });
     }
-  </script>
-</body>
-</html>`, {
+    const txTime = Date.now();
+    const entry = { from: username, to, amount, datetime: txTime, message: message || "" };
+    await kv.atomic()
+      .check(sender)
+      .check(receiver)
+      .set(senderKey, { ...sender.value, balance: sender.value.balance - amount })
+      .set(receiverKey, { ...receiver.value, balance: receiver.value.balance + amount })
+      .set(["tx", username, txTime], entry)
+      .set(["tx", to, txTime], entry)
+      .commit();
+    return Response.json({ ok: true });
+  }
+
+  // GET TX HISTORY
+  if (path === "/tx" && req.method === "POST") {
+    const { username } = await req.json();
+    const prefix = ["tx", username];
+    const txs = [];
+    for await (const entry of kv.list({ prefix })) {
+      txs.push(entry.value);
+    }
+    txs.sort((a, b) => b.datetime - a.datetime);
+    return Response.json({ transactions: txs });
+  }
+
+  // WELCOME PAGE
+  if (path === "/welcome" && req.method === "GET") {
+    return new Response(`<!DOCTYPE html><html><head><title>Welcome</title></head><body><h1>Welcome to SifunaStena</h1><p>You will receive an email once you have been verified.</p></body></html>`, {
       headers: { "content-type": "text/html" }
     });
   }
