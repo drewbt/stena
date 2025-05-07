@@ -100,8 +100,7 @@
 
   <script>
     let lastLoginAttempt = 0;
-    const username = localStorage.getItem("username");
-    if (username) show("dashboard") && loadDashboard();
+    let ws;
 
     function show(id) {
       document.querySelectorAll(".screen").forEach(s => s.classList.remove("active"));
@@ -118,6 +117,7 @@
         .then(res => res.json()).then(data => {
         if (data.ok) {
           localStorage.setItem("username", user);
+          openWebSocket(user);
           show("dashboard");
           loadDashboard();
         } else {
@@ -128,9 +128,22 @@
       });
     }
 
-    function resetPassword() {
-      const email = prompt("Enter your email:");
-      if (email) fetch("/reset", { method: "POST", body: JSON.stringify({ email }) });
+    function openWebSocket(username) {
+      ws = new WebSocket(`wss://sifunastena.deno.dev/ws?user=${username}`);
+      ws.onmessage = async (e) => {
+        const msg = JSON.parse(e.data);
+        if (msg.type === "balance-update") {
+          const bal = await fetch("/balance", {
+        method: "POST",
+        body: JSON.stringify({ username })
+      }).then(r => r.json());
+      const balanceEl = document.getElementById("balance");
+      balanceEl.textContent = `Ϡ${bal.balance}`;
+      balanceEl.animate([
+        { transform: 'scale(1)', opacity: 1 },
+        { transform: 'scale(1.15)', opacity: 1 },
+        { transform: 'scale(1)', opacity: 1 }
+      ], { duration: 300, easing: 'ease-out' });
       alert("If this email is registered, you'll receive reset instructions.");
     }
 
@@ -187,6 +200,7 @@
 
     function logout() {
       localStorage.removeItem("username");
+      if (ws) ws.close();
       show("login");
     }
   </script>
