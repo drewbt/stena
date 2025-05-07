@@ -14,25 +14,23 @@
       justify-content: center;
       align-items: center;
       height: 100vh;
-      background: #f4f4f8;
+      background: #121212;
+      color: white;
     }
     #app {
       text-align: center;
       width: 100%;
       max-width: 400px;
       padding: 2em;
-      background: white;
-      border-radius: 12px;
-      box-shadow: 0 0 12px rgba(0,0,0,0.1);
     }
     h1 {
-      font-size: 3em;
+      font-size: 5em;
       color: gold;
     }
     input, button {
       font-family: system-ui;
       margin: 0.4em 0;
-      padding: 0.5em;
+      padding: 0.6em;
       width: 100%;
       box-sizing: border-box;
       font-size: 1em;
@@ -48,7 +46,7 @@
       margin-top: 1em;
       max-height: 200px;
       overflow-y: auto;
-      border-top: 1px solid #ccc;
+      border-top: 1px solid #444;
       padding-top: 1em;
     }
     .tx-entry {
@@ -56,8 +54,10 @@
       margin-bottom: 0.5em;
     }
     #balance {
-      font-size: 2em;
+      font-size: 2.5em;
+      margin: 0.2em 0;
       transition: transform 0.2s ease;
+      color: gold;
     }
   </style>
 </head>
@@ -65,10 +65,11 @@
   <div id="app">
     <div id="login-view">
       <h1>Ϡ</h1>
-      <h2>Login</h2>
+      <h3>Log In</h3>
       <input id="email" placeholder="Email" />
       <input id="password" type="password" placeholder="Password" />
-      <button onclick="login()">Login</button>
+      <button onclick="login()">Log In</button>
+      <button onclick="signup()">Sign Up</button>
       <p id="login-message"></p>
     </div>
 
@@ -133,6 +134,28 @@
       }
     }
 
+    async function signup() {
+      const emailInput = document.getElementById("email").value;
+      const pw = document.getElementById("password").value;
+      const payload = {
+        name: "Test",
+        surname: "User",
+        email: emailInput,
+        cell: "0000000000",
+        password: pw,
+        idb64: btoa("fake-id-placeholder")
+      };
+
+      const res = await fetch("/signup", {
+        method: "POST",
+        body: JSON.stringify(payload),
+      });
+
+      if (res.ok) {
+        document.getElementById("login-message").innerText = "Signup submitted. Await approval.";
+      }
+    }
+
     async function loadTx() {
       const res = await fetch("/tx", {
         method: "POST",
@@ -162,15 +185,14 @@
         if (e.data === "update") {
           const res = await fetch("/login", {
             method: "POST",
-            body: JSON.stringify({ email, password: "" }), // assume still valid session
+            body: JSON.stringify({ email, password: "" }),
           });
           if (res.ok) {
             const data = await res.json();
             updateBalance(data.balance);
             loadTx();
           }
-        }
-        if (e.data === "approved") {
+        } else if (e.data === "approved") {
           document.getElementById("login-message").innerText = "You have been approved!";
         }
       };
@@ -178,7 +200,9 @@
 
     if (email) {
       document.getElementById("email").value = email;
-      show("login"); // or auto-try login if token-based auth added
+      show("login");
+    } else {
+      show("login");
     }
   </script>
 </body>
