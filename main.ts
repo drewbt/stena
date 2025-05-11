@@ -1,6 +1,8 @@
-// main.ts (for Deno Deploy)
+// main.ts (for Deno Deploy - Secure Password Handling Example)
 
 import { serve } from "https://deno.land/std@0.224.2/http/server.ts";
+// Importing bcrypt for secure password hashing
+import * as bcrypt from "https://deno.land/x/bcrypt@v0.4.1/mod.ts";
 
 // Initialize Deno KV
 const kv = await Deno.openKv();
@@ -40,7 +42,7 @@ async function getUserTransactions(userId: string): Promise<any[]> {
     for await (const entry of iter) {
         transactions.push(entry.value);
     }
-    // Sort by timestamp (protobuf appended naturally gives order, but fetching might mix)
+    // Sort by timestamp for display order (protobuf appended naturally gives order, but fetching might mix)
     transactions.sort((a, b) => a.timestamp - b.timestamp);
     return transactions;
 }
@@ -107,15 +109,16 @@ function htmlLayout(title: string, content: string, user?: any): string {
 function homePageHTML(): string {
     return htmlLayout("Welcome to Diz (Basic Demo)", `
         <p>This is a simplified demonstration of the basic token allocation and transfer logic of the Diz system, built with Deno Deploy and Deno KV.</p>
+        <p>This version demonstrates **proper password hashing** for signup and login, addressing the crucial security concern from the previous example.</p>
         <p>It illustrates:</p>
         <ul>
-            <li>User Signup & Basic Allocation</li>
-            <li>Monthly Allocation on Login</li>
+            <li>User Signup with Secure Password Hashing & Basic Allocation</li>
+            <li>Monthly Allocation on Login (with secure password verification)</li>
             <li>Token Balance</li>
             <li>Sending Tokens to Others</li>
             <li>Basic Transaction History</li>
         </ul>
-        <p>Note: This demo skips many crucial real-world complexities like robust security, true identity verification, complex error handling, and the full Functional Intelligence features described in the vision.</p>
+        <p>Note: This demo still skips many crucial real-world complexities like true identity verification, robust session management beyond a simple cookie, complex error handling, and the full Functional Intelligence features described in the vision.</p>
         <p><a href="/signup">Sign up</a> or <a href="/login">Log in</a> to try the basic features.</p>
     `);
 }
@@ -132,7 +135,11 @@ function signupFormHTML(error?: string): string {
             <div>
                 <label for="password">Password:</label>
                 <input type="password" id="password" name="password" required>
-                </div>
+            </div>
+             <div>
+                <label for="confirm_password">Confirm Password:</label>
+                <input type="password" id="confirm_password" name="confirm_password" required>
+            </div>
             <button type="submit">Sign Up</button>
         </form>
     `);
@@ -150,7 +157,7 @@ function loginFormHTML(error?: string): string {
             <div>
                 <label for="password">Password:</label>
                 <input type="password" id="password" name="password" required>
-                </div>
+            </div>
             <button type="submit">Login</button>
         </form>
     `);
@@ -231,10 +238,17 @@ async function handler(req: Request): Promise<Response> {
 
         const formData = await req.formData();
         const username = formData.get("username")?.toString();
-        const password = formData.get("password")?.toString(); // WARNING: Plaintext password in demo!
+        const password = formData.get("password")?.toString();
+        const confirmPassword = formData.get("confirm_password")?.toString();
 
-        if (!username || !password) {
-             return new Response(signupFormHTML("Username and password are required."), {
+
+        if (!username || !password || !confirmPassword) {
+             return new Response(signupFormHTML("Username, password, and confirmation are required."), {
+                headers: { "content-type": "text/html" }, status: 400
+            });
+        }
+         if (password !== confirmPassword) {
+             return new Response(signupFormHTML("Passwords do not match."), {
                 headers: { "content-type": "text/html" }, status: 400
             });
         }
@@ -243,16 +257,21 @@ async function handler(req: Request): Promise<Response> {
         const existingUser = await getUser(newUserId);
 
         if (existingUser) {
-             return new Response(signupFormHTML("Username already exists."), {
+             return new Response(signupFormHTML(`Username '${username}' already exists.`), {
                 headers: { "content-type": "text/html" }, status: 400
             });
         }
+
+        // --- CORRECT WAY: Hash the password ---
+        const hashedPassword = await bcrypt.hash(password);
+        // --- End of Correct Way ---
+
 
         // Create user and allocate initial basic needs tokens
         user = {
             id: newUserId,
             username: username,
-            password_plaintext_demo: password, // WARNING: Plaintext password!
+            password_hash: hashedPassword, // Store the hash
             balance_parts: BASIC_ALLOCATION_PARTS, // Initial allocation
             last_allocation_timestamp: Date.now(), // Record time of first allocation
         };
@@ -281,7 +300,7 @@ async function handler(req: Request): Promise<Response> {
 
         const formData = await req.formData();
         const username = formData.get("username")?.toString();
-        const password = formData.get("password")?.toString(); // WARNING: Plaintext password!
+        const password = formData.get("password")?.toString();
 
         if (!username || !password) {
              return new Response(loginFormHTML("Username and password are required."), {
@@ -292,12 +311,22 @@ async function handler(req: Request): Promise<Response> {
         const loginUserId = generateUserId(username);
         user = await getUser(loginUserId);
 
-        // WARNING: Plaintext password check in demo!
-        if (!user || user.password_plaintext_demo !== password) {
+        if (!user) {
             return new Response(loginFormHTML("Invalid username or password."), {
                 headers: { "content-type": "text/html" }, status: 401
             });
         }
+
+        // --- CORRECT WAY: Compare password against the stored hash ---
+        const passwordMatch = await bcrypt.compare(password, user.password_hash);
+
+        if (!passwordMatch) {
+            return new Response(loginFormHTML("Invalid username or password."), {
+                headers: { "content-type": "text/html" }, status: 401
+            });
+        }
+         // --- End of Correct Way ---
+
 
         // Check for monthly allocation on first login of the month
         if (Date.now() - user.last_allocation_timestamp > ONE_MONTH_MS) {
@@ -360,7 +389,7 @@ async function handler(req: Request): Promise<Response> {
             if (!recipient) {
                 message = `Recipient '${recipientUsername}' not found.`;
             } else if (user.balance_parts < amountParts) {
-                message = `Insufficient balance. You have ${user.balance_parts / UNITS_TO_PARTS_MULTIPLIER} units.`;
+                message = `Insufficient balance. You have ${(user.balance_parts / UNITS_TO_PARTS_MULTIPLIER).toFixed(3)} units.`;
             } else {
                 // Perform the transfer
                 user.balance_parts -= amountParts;
